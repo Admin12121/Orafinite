@@ -9,6 +9,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getGuardStats } from "@/lib/actions/guard";
+import { useGuardEvents } from "@/hooks/use-guard-events";
+import { IconCircleFilled } from "@tabler/icons-react";
 
 const PERIOD_MAP: Record<string, string> = {
   today: "today",
@@ -34,6 +36,35 @@ const Analytics = () => {
     avgLatency: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  // Real-time SSE — auto-update stats when server pushes new data
+  const { connected: sseConnected, stats: realtimeStats } = useGuardEvents({
+    enabled: true,
+    onStatsUpdate: (s) => {
+      // Only apply real-time stats when viewing "all time" or "7days"
+      // (the SSE stats are unfiltered totals)
+      if (period === "7days") {
+        setStats({
+          totalScans: s.total_scans,
+          threatsBlocked: s.threats_blocked,
+          safePrompts: s.safe_prompts,
+          avgLatency: s.avg_latency,
+        });
+      }
+    },
+  });
+
+  // Apply real-time stats snapshot when it arrives
+  useEffect(() => {
+    if (realtimeStats && period === "7days") {
+      setStats({
+        totalScans: realtimeStats.total_scans,
+        threatsBlocked: realtimeStats.threats_blocked,
+        safePrompts: realtimeStats.safe_prompts,
+        avgLatency: realtimeStats.avg_latency,
+      });
+    }
+  }, [realtimeStats, period]);
 
   const fetchStats = useCallback(async (selectedPeriod: string) => {
     setIsLoading(true);
@@ -105,9 +136,27 @@ const Analytics = () => {
         className={`flex bg-zinc-900 flex-col border border-zinc-800 rounded-2xl bg-stone-0 transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}
       >
         <div className="flex justify-between py-4 px-6 items-center">
-          <p className="text-stone-800 font-normal text-sm leading-5 flex-1">
-            Monitor your LLM security scans and threat detection activity.
-          </p>
+          <div className="flex items-center gap-3 flex-1">
+            <p className="text-stone-800 font-normal text-sm leading-5">
+              Monitor your LLM security scans and threat detection activity.
+            </p>
+            {/* Real-time connection indicator */}
+            <div
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-800"
+              title={
+                sseConnected
+                  ? "Real-time updates active"
+                  : "Real-time updates disconnected"
+              }
+            >
+              <IconCircleFilled
+                className={`w-1.5 h-1.5 ${sseConnected ? "text-lime-500" : "text-stone-600"}`}
+              />
+              <span className="text-[10px] font-mono uppercase text-stone-500">
+                {sseConnected ? "Live" : "Offline"}
+              </span>
+            </div>
+          </div>
           <Select value={period} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-fit h-6 border-transparent hover:bg-stone-100 font-semibold font-mono uppercase text-xs gap-1 px-3">
               <SelectValue />
