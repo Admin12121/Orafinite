@@ -1,24 +1,43 @@
-# ============================================
-# Orafinite Rust API Configuration (DEVELOPMENT)
-# ============================================
-# For running outside Docker (local development)
-# WARNING: These are development credentials only!
+# Environment files with secrets
+.env
 
-# Database (same as docker-compose)
-DATABASE_URL=postgresql://orafinite_user:orafinite_dev_2026_secure@localhost:5432/orafinite
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
 
-# Redis
-REDIS_URL=redis://127.0.0.1:6379
+# Rust
+target/
+Cargo.lock
 
-# Server
-SERVER_HOST=0.0.0.0
-SERVER_PORT=8080
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# ML Sidecar (Python gRPC)
-ML_SIDECAR_URL=http://127.0.0.1:50051
+# OS
+.DS_Store
+Thumbs.db
 
-# CORS - Allow Next.js frontend
-FRONTEND_URL=http://localhost:3000
+# Docker volumes (if mounted locally)
+postgres_data/
+redis_data/
+ml_cache/
 
-# Logging
-RUST_LOG=orafinite_api=debug,tower_http=debug
+# Logs
+*.log
+logs/
+
+# ML models cache
+*.pt
+*.bin
+*.onnx
