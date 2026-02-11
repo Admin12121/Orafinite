@@ -180,6 +180,7 @@ export interface ScanPromptResponse {
   latency_ms: number;
   cached: boolean;
   timestamp: string;
+  threat_categories?: string[];
 }
 
 // --- Guard Logs ---
@@ -192,14 +193,43 @@ export interface GuardLogItem {
   is_safe: boolean;
   risk_score: number | null;
   threats_detected: unknown;
+  threat_categories: string[] | null;
   latency_ms: number | null;
   cached: boolean | null;
   ip_address: string | null;
+  request_type: string | null;
+  user_agent: string | null;
+  scan_options: unknown | null;
+  response_id: string | null;
+  /** Full prompt text — only populated for threats (null for safe prompts) */
+  prompt_text: string | null;
+  sanitized_prompt: string | null;
   created_at: string;
+}
+
+export interface PaginationMeta {
+  page: number;
+  per_page: number;
+  total_items: number;
+  total_pages: number;
+  next_cursor: string | null;
+  has_next: boolean;
+  has_prev: boolean;
 }
 
 export interface ListGuardLogsResponse {
   logs: GuardLogItem[];
+  pagination: PaginationMeta;
+}
+
+export interface TypeBreakdown {
+  request_type: string;
+  count: number;
+}
+
+export interface CategoryCount {
+  category: string;
+  count: number;
 }
 
 export interface GuardStatsResponse {
@@ -207,6 +237,8 @@ export interface GuardStatsResponse {
   threats_blocked: number;
   safe_prompts: number;
   avg_latency: number;
+  by_type?: TypeBreakdown[];
+  top_categories?: CategoryCount[];
 }
 
 // --- Scan API ---
@@ -383,14 +415,43 @@ export interface OrganizationResponse {
 // Typed API methods
 // ============================================================
 
+// --- Guard Log Query Params ---
+
+export interface ListGuardLogsParams {
+  page?: number;
+  per_page?: number;
+  status?: "safe" | "threat";
+  request_type?: "scan" | "validate" | "batch";
+  category?: string;
+  ip?: string;
+  cursor?: string;
+  from?: string;
+  to?: string;
+}
+
+function buildLogsQuery(params: ListGuardLogsParams = {}): string {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.per_page) q.set("per_page", String(params.per_page));
+  if (params.status) q.set("status", params.status);
+  if (params.request_type) q.set("request_type", params.request_type);
+  if (params.category) q.set("category", params.category);
+  if (params.ip) q.set("ip", params.ip);
+  if (params.cursor) q.set("cursor", params.cursor);
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  const qs = q.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export const guardApi = {
   scanPrompt: (apiKey: string, data: ScanPromptRequest) =>
     apiClientWithKey<ScanPromptResponse>("/v1/guard/scan", apiKey, {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  listLogs: (limit = 50) =>
-    api.get<ListGuardLogsResponse>(`/v1/guard/logs?limit=${limit}`),
+  listLogs: (params: ListGuardLogsParams = {}) =>
+    api.get<ListGuardLogsResponse>(`/v1/guard/logs${buildLogsQuery(params)}`),
   getStats: (period?: string) =>
     api.get<GuardStatsResponse>(
       period ? `/v1/guard/stats?period=${period}` : "/v1/guard/stats",
