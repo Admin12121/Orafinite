@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import {
   IconListSearch,
   IconShieldCheck,
@@ -337,6 +337,10 @@ export default function LogsPage() {
   const [pendingEventCount, setPendingEventCount] = useState(0);
   const [showNewEventsBanner, setShowNewEventsBanner] = useState(false);
 
+  // Monotonically increasing counter that forces a reload even when
+  // currentPage stays at 1 (e.g. when only filters changed).
+  const [reloadTick, setReloadTick] = useState(0);
+
   // ── Real-time SSE ────────────────────────────────────────────
   const {
     connected: sseConnected,
@@ -396,9 +400,12 @@ export default function LogsPage() {
     [statusFilter, typeFilter, clearEvents],
   );
 
+  // Reload data whenever page, filters, or reloadTick changes.
+  // reloadTick ensures we reload even when the page number doesn't change
+  // (e.g. user changes filter while already on page 1).
   useEffect(() => {
     loadData(currentPage);
-  }, [currentPage, loadData]);
+  }, [currentPage, reloadTick, loadData]);
 
   // Apply real-time stats if available
   useEffect(() => {
@@ -419,8 +426,22 @@ export default function LogsPage() {
   const displayLogs: GuardLog[] = (() => {
     if (currentPage !== 1) return logs;
 
+    // Convert SSE events to GuardLog shape, then apply the active filters
+    // so that real-time rows are consistent with the selected filter state.
     const newEvents = realtimeEvents
-      .filter((e) => !logs.some((l) => l.id === e.id))
+      .filter((e) => {
+        // De-duplicate against already-fetched server rows
+        if (logs.some((l) => l.id === e.id)) return false;
+
+        // Apply status filter
+        if (statusFilter === "safe" && !e.is_safe) return false;
+        if (statusFilter === "threat" && e.is_safe) return false;
+
+        // Apply type filter
+        if (typeFilter !== "all" && e.request_type !== typeFilter) return false;
+
+        return true;
+      })
       .map((e) => ({
         id: e.id,
         organizationId: e.organization_id ?? "",
@@ -469,7 +490,8 @@ export default function LogsPage() {
   const handleJumpToLatest = () => {
     setCurrentPage(1);
     setShowNewEventsBanner(false);
-    loadData(1);
+    // Force a reload even if already on page 1
+    setReloadTick((t) => t + 1);
   };
 
   const toggleRow = (id: string) => {
@@ -488,6 +510,10 @@ export default function LogsPage() {
     setStatusFilter("all");
     setTypeFilter("all");
     setCurrentPage(1);
+    // Clear stale SSE events and force a fresh reload
+    clearEvents();
+    setPendingEventCount(0);
+    setReloadTick((t) => t + 1);
   };
 
   const hasActiveFilters = statusFilter !== "all" || typeFilter !== "all";
@@ -669,6 +695,10 @@ export default function LogsPage() {
                   onClick={() => {
                     setStatusFilter(s);
                     setCurrentPage(1);
+                    // Clear SSE buffer so stale events don't leak through
+                    clearEvents();
+                    setPendingEventCount(0);
+                    setReloadTick((t) => t + 1);
                   }}
                   className={`text-xs px-2.5 py-1 rounded-md font-mono uppercase transition-colors ${
                     statusFilter === s
@@ -697,6 +727,10 @@ export default function LogsPage() {
                   onClick={() => {
                     setTypeFilter(t);
                     setCurrentPage(1);
+                    // Clear SSE buffer so stale events don't leak through
+                    clearEvents();
+                    setPendingEventCount(0);
+                    setReloadTick((t_) => t_ + 1);
                   }}
                   className={`text-xs px-2.5 py-1 rounded-md font-mono uppercase transition-colors ${
                     typeFilter === t
@@ -724,7 +758,7 @@ export default function LogsPage() {
           </div>
         )}
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden relative">
           {displayLogs.length === 0 && !isLoading ? (
             <div className="p-8 text-center text-stone-500">
               <IconListSearch className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -884,7 +918,7 @@ export default function LogsPage() {
 
           {/* Loading overlay */}
           {isLoading && displayLogs.length > 0 && (
-            <div className="absolute inset-0 bg-zinc-900/50 flex items-center justify-center rounded-2xl">
+            <div className="absolute inset-0 bg-zinc-900/50 flex items-center justify-center rounded-2xl z-10">
               <IconRefresh className="w-6 h-6 animate-spin text-stone-400" />
             </div>
           )}
@@ -893,6 +927,3 @@ export default function LogsPage() {
     </section>
   );
 }
-
-// Fragment import for rendering multiple table rows per item
-import { Fragment } from "react";

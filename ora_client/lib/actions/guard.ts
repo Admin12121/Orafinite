@@ -1,320 +1,396 @@
-"use client";
+"use server";
 
 import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  type MutableRefObject,
-} from "react";
-import { authClient } from "@/lib/auth-client";
+  guardApi,
+  apiClientWithKey,
+  type ScanPromptResponse,
+  type ListGuardLogsParams,
+  type ApiScanMode,
+  type ApiScannerConfig,
+} from "@/lib/api";
 
 // ============================================
-// Types
+// Guard Log Types (camelCase for frontend use)
 // ============================================
 
-export interface GuardLogEvent {
+export interface GuardLog {
   id: string;
-  organization_id: string | null;
-  is_safe: boolean;
-  risk_score: number;
-  threats_detected: unknown;
-  threat_categories: string[];
-  latency_ms: number;
-  cached: boolean;
-  ip_address: string | null;
-  request_type: string;
-  created_at: string;
+  organizationId: string;
+  apiKeyId: string | null;
+  promptHash: string;
+  isSafe: boolean;
+  riskScore: number | null;
+  threatsDetected: unknown;
+  threatCategories: string[] | null;
+  latencyMs: number | null;
+  cached: boolean | null;
+  ipAddress: string | null;
+  requestType: string | null;
+  userAgent: string | null;
+  scanOptions: unknown | null;
+  responseId: string | null;
+  /** Full prompt text — only populated for threats (null for safe prompts) */
+  promptText: string | null;
+  sanitizedPrompt: string | null;
+  createdAt: string;
 }
 
-export interface StatsUpdate {
-  total_scans: number;
-  threats_blocked: number;
-  safe_prompts: number;
-  avg_latency: number;
+export interface PaginationInfo {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+  nextCursor: string | null;
+  hasNext: boolean;
+  hasPrev: boolean;
 }
 
-export interface ConnectionEvent {
-  organization_id: string;
-  user_id: string;
-  message: string;
-}
-
-export type GuardEventType = "guard_log" | "stats_update" | "connected";
-
-export interface UseGuardEventsOptions {
-  /** Whether to auto-connect on mount. Defaults to true. */
-  enabled?: boolean;
-  /** Maximum number of recent events to keep in memory. Defaults to 200. */
-  maxEvents?: number;
-  /** Callback fired for every new guard log event */
-  onGuardLog?: (event: GuardLogEvent) => void;
-  /** Callback fired for stats updates (every ~10s) */
-  onStatsUpdate?: (stats: StatsUpdate) => void;
-  /** Callback fired when connected */
-  onConnected?: (info: ConnectionEvent) => void;
-  /** Callback fired on errors */
-  onError?: (error: Event) => void;
-}
-
-export interface UseGuardEventsReturn {
-  /** Whether the SSE connection is currently open */
-  connected: boolean;
-  /** Whether we're attempting to reconnect after a disconnect */
-  reconnecting: boolean;
-  /** Most recent guard log events (newest first, capped at maxEvents) */
-  events: GuardLogEvent[];
-  /** Most recent stats snapshot from the server */
-  stats: StatsUpdate | null;
-  /** Connection info from the server */
-  connectionInfo: ConnectionEvent | null;
-  /** Manually disconnect */
-  disconnect: () => void;
-  /** Manually reconnect */
-  reconnect: () => void;
-  /** Clear the in-memory event buffer */
-  clearEvents: () => void;
+export interface GuardLogsResult {
+  logs: GuardLog[];
+  pagination: PaginationInfo;
 }
 
 // ============================================
-// Hook
+// Scan Prompt Types
+// ============================================
+
+export interface ScanPromptInput {
+  prompt: string;
+  apiKey: string;
+  options?: {
+    checkInjection?: boolean;
+    checkToxicity?: boolean;
+    checkPii?: boolean;
+    sanitize?: boolean;
+  };
+}
+
+export interface ScanPromptResult {
+  id: string;
+  safe: boolean;
+  sanitizedPrompt?: string;
+  threats: Array<{
+    threatType: string;
+    confidence: number;
+    description: string;
+    severity: string;
+  }>;
+  threatCategories?: string[];
+  riskScore: number;
+  latencyMs: number;
+  cached: boolean;
+}
+
+// ============================================
+// Advanced Scan Types
+// ============================================
+
+export type ScanMode = "prompt_only" | "output_only" | "both";
+
+export interface ScannerConfigInput {
+  enabled: boolean;
+  threshold: number;
+  settingsJson: string;
+}
+
+export interface AdvancedScanInput {
+  prompt?: string;
+  output?: string;
+  apiKey: string;
+  scanMode: ScanMode;
+  inputScanners: Record<string, ScannerConfigInput>;
+  outputScanners: Record<string, ScannerConfigInput>;
+  sanitize?: boolean;
+  failFast?: boolean;
+}
+
+export interface AdvancedScannerResultItem {
+  scannerName: string;
+  isValid: boolean;
+  score: number;
+  description: string;
+  severity: string;
+  scannerLatencyMs: number;
+}
+
+export interface AdvancedScanResult {
+  id: string;
+  safe: boolean;
+  sanitizedPrompt?: string;
+  sanitizedOutput?: string;
+  riskScore: number;
+  scanMode: ScanMode;
+  inputResults: AdvancedScannerResultItem[];
+  outputResults: AdvancedScannerResultItem[];
+  latencyMs: number;
+  inputScannersRun: number;
+  outputScannersRun: number;
+  threatCategories?: string[];
+  cached: boolean;
+}
+
+// ============================================
+// Stats Types
+// ============================================
+
+export interface TypeBreakdownItem {
+  requestType: string;
+  count: number;
+}
+
+export interface CategoryCountItem {
+  category: string;
+  count: number;
+}
+
+export interface GuardStats {
+  totalScans: number;
+  threatsBlocked: number;
+  safePrompts: number;
+  avgLatency: number;
+  byType?: TypeBreakdownItem[];
+  topCategories?: CategoryCountItem[];
+}
+
+// ============================================
+// Actions
 // ============================================
 
 /**
- * React hook that subscribes to the Rust API's SSE endpoint for
- * real-time guard log events.
- *
- * The SSE endpoint requires session auth. The browser automatically
- * sends the `better-auth.session_token` cookie, so we use
- * a proxy through Next.js (the `/v1/guard/events` path is proxied
- * by nginx to the Rust API).
- *
- * ## Usage
- *
- * ```tsx
- * const { connected, events, stats } = useGuardEvents({
- *   onGuardLog: (e) => console.log("New event:", e),
- * });
- * ```
+ * Scan a prompt using the Guard API (for testing in dashboard)
+ * Calls Rust API: POST /v1/guard/scan (with API key auth)
  */
-export function useGuardEvents(
-  options: UseGuardEventsOptions = {},
-): UseGuardEventsReturn {
-  const {
-    enabled = true,
-    maxEvents = 200,
-    onGuardLog,
-    onStatsUpdate,
-    onConnected,
-    onError,
-  } = options;
-
-  const [connected, setConnected] = useState(false);
-  const [reconnecting, setReconnecting] = useState(false);
-  const [events, setEvents] = useState<GuardLogEvent[]>([]);
-  const [stats, setStats] = useState<StatsUpdate | null>(null);
-  const [connectionInfo, setConnectionInfo] = useState<ConnectionEvent | null>(
-    null,
+export async function scanPrompt(
+  input: ScanPromptInput,
+): Promise<ScanPromptResult | { error: string }> {
+  const { data, error } = await apiClientWithKey<ScanPromptResponse>(
+    "/v1/guard/scan",
+    input.apiKey,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        prompt: input.prompt,
+        options: {
+          check_injection: input.options?.checkInjection ?? true,
+          check_toxicity: input.options?.checkToxicity ?? true,
+          check_pii: input.options?.checkPii ?? true,
+          sanitize: input.options?.sanitize ?? false,
+        },
+      }),
+    },
   );
 
-  // Refs to keep callback references stable across renders
-  const onGuardLogRef = useRef(onGuardLog);
-  const onStatsUpdateRef = useRef(onStatsUpdate);
-  const onConnectedRef = useRef(onConnected);
-  const onErrorRef = useRef(onError);
-  const maxEventsRef = useRef(maxEvents);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const connectRef: MutableRefObject<(() => Promise<void>) | null> =
-    useRef(null);
-
-  // Update refs when callbacks change
-  useEffect(() => {
-    onGuardLogRef.current = onGuardLog;
-  }, [onGuardLog]);
-  useEffect(() => {
-    onStatsUpdateRef.current = onStatsUpdate;
-  }, [onStatsUpdate]);
-  useEffect(() => {
-    onConnectedRef.current = onConnected;
-  }, [onConnected]);
-  useEffect(() => {
-    onErrorRef.current = onError;
-  }, [onError]);
-  useEffect(() => {
-    maxEventsRef.current = maxEvents;
-  }, [maxEvents]);
-
-  const clearEvents = useCallback(() => {
-    setEvents([]);
-  }, []);
-
-  const disconnect = useCallback(() => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    setConnected(false);
-    setReconnecting(false);
-    reconnectAttemptRef.current = 0;
-  }, []);
-
-  const connect: () => Promise<void> = useCallback(async () => {
-    // Clean up any existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-
-    // The SSE endpoint is proxied through nginx to the Rust API.
-    //
-    // EventSource does NOT support custom headers, so we use two
-    // strategies for authentication:
-    //
-    // 1. The `better-auth.session_token` cookie is sent automatically
-    //    for same-origin requests (handled by nginx proxy).
-    //
-    // 2. As a fallback, we fetch the session token from Better Auth's
-    //    client-side API and pass it as a `?token=` query parameter.
-    //    This handles cases where cookies aren't available (e.g. some
-    //    cross-origin setups or when the cookie name differs).
-
-    let url = `/v1/guard/events`;
-
-    // Try to get session token for query-param fallback
-    try {
-      const session = await authClient.getSession();
-      if (session?.data?.session?.token) {
-        url += `?token=${encodeURIComponent(session.data.session.token)}`;
-      }
-    } catch {
-      // Cookie-based auth will be used as fallback
-      console.debug(
-        "[useGuardEvents] Could not fetch session token, relying on cookie auth",
-      );
-    }
-
-    const es = new EventSource(url, { withCredentials: true });
-    eventSourceRef.current = es;
-
-    es.addEventListener("connected", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as ConnectionEvent;
-        setConnectionInfo(data);
-        setConnected(true);
-        setReconnecting(false);
-        reconnectAttemptRef.current = 0;
-        onConnectedRef.current?.(data);
-      } catch (err) {
-        console.error("[useGuardEvents] Failed to parse connected event:", err);
-      }
-    });
-
-    es.addEventListener("guard_log", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as GuardLogEvent;
-
-        setEvents((prev) => {
-          const next = [data, ...prev];
-          // Cap at maxEvents to prevent unbounded memory growth
-          if (next.length > maxEventsRef.current) {
-            return next.slice(0, maxEventsRef.current);
-          }
-          return next;
-        });
-
-        onGuardLogRef.current?.(data);
-      } catch (err) {
-        console.error("[useGuardEvents] Failed to parse guard_log event:", err);
-      }
-    });
-
-    es.addEventListener("stats_update", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as StatsUpdate;
-        setStats(data);
-        onStatsUpdateRef.current?.(data);
-      } catch (err) {
-        console.error(
-          "[useGuardEvents] Failed to parse stats_update event:",
-          err,
-        );
-      }
-    });
-
-    es.onopen = () => {
-      setConnected(true);
-      setReconnecting(false);
-      reconnectAttemptRef.current = 0;
-    };
-
-    es.onerror = (e: Event) => {
-      setConnected(false);
-      onErrorRef.current?.(e);
-
-      // Auto-reconnect with exponential backoff
-      const attempt = reconnectAttemptRef.current;
-      const delay = Math.min(1000 * Math.pow(2, attempt), 30000); // max 30s
-
-      console.warn(
-        `[useGuardEvents] Connection lost. Reconnecting in ${delay}ms (attempt ${attempt + 1})...`,
-      );
-
-      setReconnecting(true);
-      reconnectAttemptRef.current = attempt + 1;
-
-      // Close the current connection
-      es.close();
-      eventSourceRef.current = null;
-
-      reconnectTimerRef.current = setTimeout(() => {
-        reconnectTimerRef.current = null;
-        if (connectRef.current) {
-          void connectRef.current();
-        }
-      }, delay);
-    };
-  }, []);
-
-  // Keep the ref in sync so reconnect callbacks always call the latest version
-  useEffect(() => {
-    connectRef.current = connect;
-  }, [connect]);
-
-  const reconnect = useCallback(() => {
-    disconnect();
-    void connect();
-  }, [disconnect, connect]);
-
-  // Auto-connect on mount if enabled
-  useEffect(() => {
-    if (!enabled) {
-      // Use cleanup-style disconnect to avoid synchronous setState in effect body
-      return () => {
-        disconnect();
-      };
-    }
-
-    void connect();
-
-    return () => {
-      disconnect();
-    };
-  }, [enabled, connect, disconnect]);
+  if (error) {
+    return { error: error.message };
+  }
 
   return {
-    connected,
-    reconnecting,
-    events,
-    stats,
-    connectionInfo,
-    disconnect,
-    reconnect,
-    clearEvents,
+    id: data.id,
+    safe: data.safe,
+    sanitizedPrompt: data.sanitized_prompt,
+    threats: data.threats.map((t) => ({
+      threatType: t.threat_type,
+      confidence: t.confidence,
+      description: t.description,
+      severity: t.severity,
+    })),
+    threatCategories: data.threat_categories ?? undefined,
+    riskScore: data.risk_score,
+    latencyMs: data.latency_ms,
+    cached: data.cached,
+  };
+}
+
+/**
+ * Advanced scan with full per-scanner configuration.
+ * Calls Rust API: POST /v1/guard/advanced-scan (with API key auth)
+ *
+ * Supports all LLM Guard input and output scanners with per-scanner
+ * enable/disable, thresholds, and scanner-specific settings.
+ * The scan_mode field controls prompt-only, output-only, or both.
+ */
+export async function advancedScan(
+  input: AdvancedScanInput,
+): Promise<AdvancedScanResult | { error: string }> {
+  // Convert frontend camelCase scanner configs to API snake_case
+  const inputScanners: Record<string, ApiScannerConfig> = {};
+  for (const [name, cfg] of Object.entries(input.inputScanners)) {
+    inputScanners[name] = {
+      enabled: cfg.enabled,
+      threshold: cfg.threshold,
+      settings_json: cfg.settingsJson,
+    };
+  }
+
+  const outputScanners: Record<string, ApiScannerConfig> = {};
+  for (const [name, cfg] of Object.entries(input.outputScanners)) {
+    outputScanners[name] = {
+      enabled: cfg.enabled,
+      threshold: cfg.threshold,
+      settings_json: cfg.settingsJson,
+    };
+  }
+
+  const apiScanMode: ApiScanMode = input.scanMode;
+
+  const { data, error } = await guardApi.advancedScan(input.apiKey, {
+    prompt: input.prompt,
+    output: input.output,
+    scan_mode: apiScanMode,
+    input_scanners: inputScanners,
+    output_scanners: outputScanners,
+    sanitize: input.sanitize ?? false,
+    fail_fast: input.failFast ?? false,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {
+    id: data.id,
+    safe: data.safe,
+    sanitizedPrompt: data.sanitized_prompt ?? undefined,
+    sanitizedOutput: data.sanitized_output ?? undefined,
+    riskScore: data.risk_score,
+    scanMode: data.scan_mode as ScanMode,
+    inputResults: data.input_results.map((r) => ({
+      scannerName: r.scanner_name,
+      isValid: r.is_valid,
+      score: r.score,
+      description: r.description,
+      severity: r.severity,
+      scannerLatencyMs: r.scanner_latency_ms,
+    })),
+    outputResults: data.output_results.map((r) => ({
+      scannerName: r.scanner_name,
+      isValid: r.is_valid,
+      score: r.score,
+      description: r.description,
+      severity: r.severity,
+      scannerLatencyMs: r.scanner_latency_ms,
+    })),
+    latencyMs: data.latency_ms,
+    inputScannersRun: data.input_scanners_run,
+    outputScannersRun: data.output_scanners_run,
+    threatCategories: data.threat_categories ?? undefined,
+    cached: data.cached,
+  };
+}
+
+/**
+ * List guard logs for the current organization with pagination and filters
+ * Calls Rust API: GET /v1/guard/logs
+ *
+ * @param params - Query parameters for filtering and pagination
+ */
+export async function listGuardLogs(
+  params: {
+    page?: number;
+    perPage?: number;
+    status?: "safe" | "threat";
+    requestType?: "scan" | "validate" | "batch";
+    category?: string;
+    ip?: string;
+    cursor?: string;
+    from?: string;
+    to?: string;
+  } = {},
+): Promise<GuardLogsResult> {
+  const apiParams: ListGuardLogsParams = {
+    page: params.page,
+    per_page: params.perPage,
+    status: params.status,
+    request_type: params.requestType,
+    category: params.category,
+    ip: params.ip,
+    cursor: params.cursor,
+    from: params.from,
+    to: params.to,
+  };
+
+  const { data, error } = await guardApi.listLogs(apiParams);
+
+  if (error) {
+    console.error("Failed to list guard logs:", error.message);
+    return {
+      logs: [],
+      pagination: {
+        page: 1,
+        perPage: params.perPage ?? 50,
+        totalItems: 0,
+        totalPages: 1,
+        nextCursor: null,
+        hasNext: false,
+        hasPrev: false,
+      },
+    };
+  }
+
+  return {
+    logs: data.logs.map((log) => ({
+      id: log.id,
+      organizationId: log.organization_id,
+      apiKeyId: log.api_key_id,
+      promptHash: log.prompt_hash,
+      isSafe: log.is_safe,
+      riskScore: log.risk_score,
+      threatsDetected: log.threats_detected,
+      threatCategories: log.threat_categories,
+      latencyMs: log.latency_ms,
+      cached: log.cached,
+      ipAddress: log.ip_address,
+      requestType: log.request_type,
+      userAgent: log.user_agent,
+      scanOptions: log.scan_options,
+      responseId: log.response_id,
+      promptText: log.prompt_text,
+      sanitizedPrompt: log.sanitized_prompt,
+      createdAt: log.created_at,
+    })),
+    pagination: {
+      page: data.pagination.page,
+      perPage: data.pagination.per_page,
+      totalItems: data.pagination.total_items,
+      totalPages: data.pagination.total_pages,
+      nextCursor: data.pagination.next_cursor,
+      hasNext: data.pagination.has_next,
+      hasPrev: data.pagination.has_prev,
+    },
+  };
+}
+
+/**
+ * Get guard statistics with optional time period filter
+ * Calls Rust API: GET /v1/guard/stats
+ *
+ * @param period - Optional time filter: "today", "24h", "48h", "3d", "7d", "30d"
+ */
+export async function getGuardStats(period?: string): Promise<GuardStats> {
+  const { data, error } = await guardApi.getStats(period);
+
+  if (error) {
+    console.error("Failed to get guard stats:", error.message);
+    return {
+      totalScans: 0,
+      threatsBlocked: 0,
+      safePrompts: 0,
+      avgLatency: 0,
+    };
+  }
+
+  return {
+    totalScans: data.total_scans,
+    threatsBlocked: data.threats_blocked,
+    safePrompts: data.safe_prompts,
+    avgLatency: data.avg_latency,
+    byType: data.by_type?.map((t) => ({
+      requestType: t.request_type,
+      count: t.count,
+    })),
+    topCategories: data.top_categories?.map((c) => ({
+      category: c.category,
+      count: c.count,
+    })),
   };
 }
