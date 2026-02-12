@@ -1,11 +1,11 @@
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{
-        sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
     },
-    Json,
 };
 use chrono::{DateTime, Utc};
 use futures::stream::Stream;
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 
 use super::AppState;
 use crate::grpc::ml_client::{CustomEndpointInfo, ModelConfig as GrpcModelConfig};
-use crate::middleware::{require_session_from_headers, ErrorResponse};
+use crate::middleware::{ErrorResponse, require_session_from_headers};
 
 // ============================================
 // Constants
@@ -481,9 +481,12 @@ pub async fn start_scan(
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
             Json(ErrorResponse::new(
-                format!("Maximum concurrent scans ({}) reached. Please wait for existing scans to complete.", MAX_CONCURRENT_SCANS),
-                "TOO_MANY_SCANS"
-            ))
+                format!(
+                    "Maximum concurrent scans ({}) reached. Please wait for existing scans to complete.",
+                    MAX_CONCURRENT_SCANS
+                ),
+                "TOO_MANY_SCANS",
+            )),
         ));
     }
 
@@ -602,6 +605,7 @@ pub async fn start_scan(
     let state_clone = state.clone();
     let model_config = req.model_config.clone();
     let probes = req.probes.clone();
+    let probe_count = probes.len();
     let scan_type = req.scan_type.clone();
     let custom_endpoint = req.custom_endpoint.clone();
     let max_prompts_per_probe = req.max_prompts_per_probe;
@@ -619,7 +623,6 @@ pub async fn start_scan(
         .await;
     });
 
-    let probe_count = probes.len();
     Ok(Json(StartScanResponse {
         scan_id,
         status: "queued".to_string(),

@@ -1,0 +1,62 @@
+# ============================================
+# Root .dockerignore (server + ml-sidecar builds)
+# ============================================
+
+# Node / Frontend
+ora_client/node_modules
+ora_client/.next
+ora_client/.turbo
+
+# Rust build artifacts
+server/target
+
+# Git
+.git
+.gitignore
+
+# Docker files (prevent recursive context)
+docker-compose.yml
+docker-compose*.yml
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Documentation
+*.md
+LICENSE
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+ml_server/__pycache__
+ml_server/scanners/__pycache__
+ml_server/.pytest_cache
+
+# ML model caches (will be mounted as volume)
+.cache
+*.pt
+*.bin
+*.safetensors
+
+# Logs
+*.log
+nginx_logs/
+
+# Misc
+.dockerignore

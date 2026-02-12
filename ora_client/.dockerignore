@@ -1,0 +1,69 @@
+# ============================================
+# Frontend .dockerignore (ora_client build context)
+# ============================================
+
+# Dependencies (reinstalled in Docker)
+node_modules
+.pnp
+.pnp.js
+
+# Build output (rebuilt in Docker)
+.next
+out
+build
+dist
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing
+coverage
+.nyc_output
+
+# Environment files — keep .env for build-time (Better Auth, Drizzle)
+# Only ignore example/local overrides
+.env.local
+.env.development
+.env.production
+!.env
+!.env.example
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Git
+.git
+.gitignore
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Turbopack / Vercel
+.turbo
+.vercel
+
+# Storybook
+storybook-static
+
+# Misc
+README.md
+LICENSE
+*.md

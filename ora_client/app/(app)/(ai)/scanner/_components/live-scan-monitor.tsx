@@ -306,10 +306,11 @@ export default function LiveScanMonitor({
     startPolling();
   }, [scanId, onComplete, onProgress, startPolling]);
 
-  // Fetch probe logs periodically (from DB via server action)
+  // Fetch probe logs only when the "logs" tab is active (or once on terminal state)
+  // This avoids polling the logs endpoint every 4s when the user isn't even viewing logs.
   useEffect(() => {
     if (isTerminal) {
-      // Final fetch of logs
+      // Final fetch of logs regardless of active tab
       getScanLogs(scanId).then((result) => {
         if (!("error" in result)) {
           setProbeLogs(result.logs);
@@ -317,6 +318,9 @@ export default function LiveScanMonitor({
       });
       return;
     }
+
+    // Only poll while the logs tab is visible
+    if (activeTab !== "logs") return;
 
     const fetchLogs = async () => {
       try {
@@ -329,10 +333,10 @@ export default function LiveScanMonitor({
       }
     };
 
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 4000);
+    fetchLogs(); // Immediate fetch when tab becomes active
+    const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
-  }, [scanId, isTerminal]);
+  }, [scanId, isTerminal, activeTab]);
 
   // Connect on mount
   useEffect(() => {
@@ -350,12 +354,9 @@ export default function LiveScanMonitor({
     };
   }, [connectSSE]);
 
-  // Also start polling as insurance (SSE may not be available in all setups)
-  useEffect(() => {
-    if (!eventSourceRef.current) {
-      startPolling();
-    }
-  }, [startPolling]);
+  // NOTE: No "insurance" polling here — connectSSE() already falls back
+  // to startPolling() in its onerror handler if SSE is unavailable.
+  // Running both simultaneously causes a request storm.
 
   const isActive =
     progress.status === "running" || progress.status === "queued";

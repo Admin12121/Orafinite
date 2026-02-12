@@ -232,7 +232,7 @@ export default function ScannerPage() {
           );
         }
       }
-    }, 3000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [scans, monitoringScanId]);

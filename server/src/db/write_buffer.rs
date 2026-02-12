@@ -242,7 +242,7 @@ impl WriteBuffer {
                 tracing::debug!("Flushed {} guard log entries to DB", count);
 
                 // Publish events to Redis for SSE subscribers (best-effort)
-                if let Some(ref mut conn) = redis_conn {
+                if let Some(conn) = redis_conn {
                     for entry in &entries {
                         if let Ok(json) = serde_json::to_string(&GuardLogEvent::from(entry)) {
                             let result: Result<(), _> = redis::cmd("PUBLISH")
