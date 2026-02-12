@@ -27,6 +27,8 @@ use super::{api_keys, auth, events, guard, guard_logs, models, organization, sca
 /// - POST /api-keys - Create API key
 /// - GET  /api-keys - List API keys
 /// - DELETE /api-keys/{key_id} - Revoke API key
+/// - GET  /api-keys/{key_id}/guard-config - Get guard config for a key
+/// - PUT  /api-keys/{key_id}/guard-config - Update guard config for a key
 ///
 /// ## Model Configuration (Session Required)
 /// - POST /models - Create model config
@@ -78,6 +80,14 @@ pub fn v1_routes() -> Router<AppState> {
         .route("/api-keys", post(api_keys::create_api_key))
         .route("/api-keys", get(api_keys::list_api_keys))
         .route("/api-keys/{key_id}", delete(api_keys::revoke_api_key))
+        .route(
+            "/api-keys/{key_id}/guard-config",
+            get(api_keys::get_guard_config),
+        )
+        .route(
+            "/api-keys/{key_id}/guard-config",
+            put(api_keys::update_guard_config),
+        )
         // ========================================
         // Model Configuration: Session auth
         // ========================================

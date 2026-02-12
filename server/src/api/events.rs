@@ -404,11 +404,21 @@ pub async fn guard_events(
     headers: HeaderMap,
     Query(query): Query<SseQueryParams>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    // Authenticate user — try header/cookie first, then one-time ticket
-    let user = if let Some(token) = extract_session_token_from_headers(&headers) {
-        // Auth via header or cookie — direct session validation
-        validate_session_token(&state.db, token).await?
-    } else if let Some(ref ticket) = query.ticket {
+    // Authenticate user.
+    //
+    // IMPORTANT: Check the one-time `?ticket=` parameter FIRST, before
+    // cookie-based auth.  Browsers always send cookies on same-origin
+    // requests, so `extract_session_token_from_headers` would find the
+    // `better-auth.session_token` cookie and attempt DB validation with
+    // the raw cookie value — which may differ from the token stored in
+    // the session table (Better Auth can transform/hash it).  If we
+    // checked cookies first the ticket would never be reached.
+    //
+    // Priority order:
+    //   1. `?ticket=<ticket>`        — one-time Redis ticket (browser SSE)
+    //   2. `Authorization: Bearer`   — header token (non-browser clients)
+    //   3. Cookie fallback           — same-origin browser requests
+    let user = if let Some(ref ticket) = query.ticket {
         // Auth via one-time ticket — redeem from Redis (atomic get+delete)
         if ticket.is_empty() {
             return Err((
@@ -431,6 +441,9 @@ pub async fn guard_events(
                 )),
             )
         })?
+    } else if let Some(token) = extract_session_token_from_headers(&headers) {
+        // Auth via Authorization header or cookie — direct session validation
+        validate_session_token(&state.db, token).await?
     } else {
         // Last resort: try the standard require_session_from_headers
         // which only checks the Authorization header

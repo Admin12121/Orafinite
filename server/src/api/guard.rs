@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     extract::State,
     http::{HeaderMap, StatusCode},
-    Json,
 };
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
@@ -18,11 +18,13 @@ use crate::grpc::ml_client::{
     ScanOptions as GrpcScanOptions, ScannerConfigEntry as GrpcScannerConfigEntry,
     ScannerResultInfo,
 };
+use crate::middleware::auth::{ApiKeyInfo, GuardConfig, GuardScannerEntry};
 use crate::middleware::rate_limit::{
-    check_monthly_quota, check_monthly_quota_remaining, check_rate_limit, increment_monthly_quota,
-    monthly_quota_for_plan, rate_limit_key, MONTHLY_QUOTA_BASIC, RATE_LIMIT_WINDOW_SECONDS,
+    MONTHLY_QUOTA_BASIC, RATE_LIMIT_WINDOW_SECONDS, check_monthly_quota,
+    check_monthly_quota_remaining, check_rate_limit, increment_monthly_quota,
+    monthly_quota_for_plan, rate_limit_key,
 };
-use crate::middleware::{require_api_key_from_headers, ErrorResponse};
+use crate::middleware::{ErrorResponse, require_api_key_from_headers};
 use crate::utils::hash_prompt;
 
 // ============================================
@@ -879,15 +881,13 @@ pub async fn batch_scan(
             if !allowed || remaining < batch_size {
                 return Err((
                     StatusCode::TOO_MANY_REQUESTS,
-                    Json(
-                        ErrorResponse::new(
-                            format!(
-                                "Rate limit exceeded. {} requests remaining, batch requires {}. Retry after {} seconds.",
-                                remaining, batch_size, retry_after
-                            ),
-                            "RATE_LIMITED",
+                    Json(ErrorResponse::new(
+                        format!(
+                            "Rate limit exceeded. {} requests remaining, batch requires {}. Retry after {} seconds.",
+                            remaining, batch_size, retry_after
                         ),
-                    ),
+                        "RATE_LIMITED",
+                    )),
                 ));
             }
         }
@@ -1224,6 +1224,128 @@ pub struct AdvancedScanResponse {
 /// the LLM output, or both.
 ///
 /// **Auth: API Key Required**
+/// Helper: convert a `GuardScannerEntry` (from per-key config) into the
+/// API-level `ApiScannerConfig` so it can be fed through the same gRPC path.
+impl From<GuardScannerEntry> for ApiScannerConfig {
+    fn from(e: GuardScannerEntry) -> Self {
+        Self {
+            enabled: e.enabled,
+            threshold: e.threshold,
+            settings_json: e.settings_json,
+        }
+    }
+}
+
+/// Parse a scan_mode string (from per-key config or X-Scan-Type header)
+/// into `ApiScanMode`. Returns `None` on unrecognised values.
+fn parse_scan_mode(s: &str) -> Option<ApiScanMode> {
+    match s {
+        "prompt_only" => Some(ApiScanMode::PromptOnly),
+        "output_only" => Some(ApiScanMode::OutputOnly),
+        "both" => Some(ApiScanMode::Both),
+        _ => None,
+    }
+}
+
+/// Resolve the effective scan configuration by merging the per-key
+/// `guard_config` (if any) with the per-request body and headers.
+///
+/// Priority (highest → lowest):
+///   1. Explicit request body fields (scan_mode, input_scanners, output_scanners, …)
+///   2. `X-Scan-Type` header (only for scan_mode, when key is configured for "both")
+///   3. Per-key `guard_config` stored in the database
+///   4. Hard-coded defaults (prompt_only, empty scanner maps, no sanitize, no fail_fast)
+struct ResolvedScanConfig {
+    scan_mode: ApiScanMode,
+    input_scanners: HashMap<String, ApiScannerConfig>,
+    output_scanners: HashMap<String, ApiScannerConfig>,
+    sanitize: bool,
+    fail_fast: bool,
+}
+
+fn resolve_scan_config(
+    api_key: &ApiKeyInfo,
+    headers: &HeaderMap,
+    req: &AdvancedScanRequest,
+) -> Result<ResolvedScanConfig, (StatusCode, Json<ErrorResponse>)> {
+    // Check whether the request body carries its own scanner maps
+    let req_has_input_scanners = !req.input_scanners.is_empty();
+    let req_has_output_scanners = !req.output_scanners.is_empty();
+
+    // Detect whether the caller explicitly chose a scan_mode in the body.
+    // Because `ApiScanMode` defaults to PromptOnly via `#[serde(default)]`,
+    // we treat it as "explicitly set" only when the request also provides
+    // scanners or non-default text matching. For simplicity we always
+    // respect the body's scan_mode value when scanners are provided.
+    let body_has_explicit_config = req_has_input_scanners || req_has_output_scanners;
+
+    match (&api_key.guard_config, body_has_explicit_config) {
+        // ── Case 1: Key has config AND request does NOT override ──
+        (Some(gc), false) => {
+            let key_mode = parse_scan_mode(&gc.scan_mode).unwrap_or(ApiScanMode::PromptOnly);
+
+            // When the key is configured for "both", the caller can narrow
+            // the scope per-request with the `X-Scan-Type` header:
+            //   X-Scan-Type: prompt   → only run input scanners this time
+            //   X-Scan-Type: output   → only run output scanners this time
+            //   X-Scan-Type: both     → run both (same as omitting header)
+            //   (omitted)             → use key's scan_mode as-is
+            let effective_mode = if key_mode == ApiScanMode::Both {
+                headers
+                    .get("X-Scan-Type")
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|s| parse_scan_mode(s))
+                    .unwrap_or(key_mode)
+            } else {
+                key_mode
+            };
+
+            // Convert key's scanner maps into ApiScannerConfig maps
+            let input_scanners: HashMap<String, ApiScannerConfig> = gc
+                .input_scanners
+                .iter()
+                .map(|(k, v)| (k.clone(), ApiScannerConfig::from(v.clone())))
+                .collect();
+            let output_scanners: HashMap<String, ApiScannerConfig> = gc
+                .output_scanners
+                .iter()
+                .map(|(k, v)| (k.clone(), ApiScannerConfig::from(v.clone())))
+                .collect();
+
+            Ok(ResolvedScanConfig {
+                scan_mode: effective_mode,
+                input_scanners,
+                output_scanners,
+                sanitize: gc.sanitize,
+                fail_fast: gc.fail_fast,
+            })
+        }
+
+        // ── Case 2: Request overrides (or key has no config) ─────
+        _ => {
+            // Use request body values directly (legacy / per-request behaviour)
+            let input_scanners: HashMap<String, ApiScannerConfig> = req
+                .input_scanners
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let output_scanners: HashMap<String, ApiScannerConfig> = req
+                .output_scanners
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            Ok(ResolvedScanConfig {
+                scan_mode: req.scan_mode,
+                input_scanners,
+                output_scanners,
+                sanitize: req.sanitize,
+                fail_fast: req.fail_fast,
+            })
+        }
+    }
+}
+
 pub async fn advanced_scan(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1239,14 +1361,22 @@ pub async fn advanced_scan(
             )
         })?;
 
+    // ── Resolve effective scan config (per-key defaults + request overrides) ──
+    let resolved = resolve_scan_config(&api_key, &headers, &req)?;
+
     tracing::debug!(
-        "Advanced scan request from org: {}, mode: {:?}",
+        "Advanced scan request from org: {}, mode: {:?}, key_config: {}",
         api_key.organization_id,
-        req.scan_mode
+        resolved.scan_mode,
+        if api_key.guard_config.is_some() {
+            "per-key"
+        } else {
+            "per-request"
+        }
     );
 
-    // ── Validate inputs ────────────────────────────────────────
-    match req.scan_mode {
+    // ── Validate inputs against the *resolved* scan mode ───────
+    match resolved.scan_mode {
         ApiScanMode::PromptOnly | ApiScanMode::Both => {
             if req.prompt.trim().is_empty() {
                 return Err((
@@ -1261,7 +1391,7 @@ pub async fn advanced_scan(
         _ => {}
     }
 
-    match req.scan_mode {
+    match resolved.scan_mode {
         ApiScanMode::OutputOnly | ApiScanMode::Both => {
             if req.output.trim().is_empty() {
                 return Err((
@@ -1354,17 +1484,17 @@ pub async fn advanced_scan(
         }
     }
 
-    // ── Build gRPC options ─────────────────────────────────────
+    // ── Build gRPC options from resolved config ────────────────
     let start = std::time::Instant::now();
     let user_agent = extract_user_agent(&headers);
 
-    let grpc_input_scanners: HashMap<String, GrpcScannerConfigEntry> = req
+    let grpc_input_scanners: HashMap<String, GrpcScannerConfigEntry> = resolved
         .input_scanners
         .into_iter()
         .map(|(k, v)| (k, v.into()))
         .collect();
 
-    let grpc_output_scanners: HashMap<String, GrpcScannerConfigEntry> = req
+    let grpc_output_scanners: HashMap<String, GrpcScannerConfigEntry> = resolved
         .output_scanners
         .into_iter()
         .map(|(k, v)| (k, v.into()))
@@ -1373,11 +1503,11 @@ pub async fn advanced_scan(
     let grpc_opts = GrpcAdvancedScanOptions {
         prompt: req.prompt.clone(),
         output: req.output.clone(),
-        scan_mode: req.scan_mode.into(),
+        scan_mode: resolved.scan_mode.into(),
         input_scanners: grpc_input_scanners,
         output_scanners: grpc_output_scanners,
-        sanitize: req.sanitize,
-        fail_fast: req.fail_fast,
+        sanitize: resolved.sanitize,
+        fail_fast: resolved.fail_fast,
     };
 
     // ── Get ML client ──────────────────────────────────────────
@@ -1460,7 +1590,7 @@ pub async fn advanced_scan(
     };
 
     // ── Log via write buffer ───────────────────────────────────
-    let scan_mode_str = match req.scan_mode {
+    let scan_mode_str = match resolved.scan_mode {
         ApiScanMode::PromptOnly => "advanced_prompt",
         ApiScanMode::OutputOnly => "advanced_output",
         ApiScanMode::Both => "advanced_both",
@@ -1480,10 +1610,11 @@ pub async fn advanced_scan(
 
     let scan_options_json = serde_json::json!({
         "scan_mode": scan_mode_str,
-        "sanitize": req.sanitize,
-        "fail_fast": req.fail_fast,
+        "sanitize": resolved.sanitize,
+        "fail_fast": resolved.fail_fast,
         "input_scanners_run": response.input_scanners_run,
         "output_scanners_run": response.output_scanners_run,
+        "config_source": if api_key.guard_config.is_some() { "per_key" } else { "per_request" },
     });
 
     let mut entry = GuardLogEntry::new_scan(

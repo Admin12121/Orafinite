@@ -2,10 +2,44 @@ use axum::{
     Json,
     http::{StatusCode, header},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::utils::hash_api_key;
+
+/// Per-scanner configuration stored inside `GuardConfig`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuardScannerEntry {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_threshold")]
+    pub threshold: f32,
+    #[serde(default)]
+    pub settings_json: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_threshold() -> f32 {
+    0.5
+}
+
+/// Protection profile persisted per API key in `api_key.guard_config`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuardConfig {
+    /// "prompt_only" | "output_only" | "both"
+    pub scan_mode: String,
+    #[serde(default)]
+    pub input_scanners: std::collections::HashMap<String, GuardScannerEntry>,
+    #[serde(default)]
+    pub output_scanners: std::collections::HashMap<String, GuardScannerEntry>,
+    #[serde(default)]
+    pub sanitize: bool,
+    #[serde(default)]
+    pub fail_fast: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct ApiKeyInfo {
@@ -13,6 +47,9 @@ pub struct ApiKeyInfo {
     pub organization_id: uuid::Uuid,
     pub scopes: Vec<String>,
     pub rate_limit_rpm: i32,
+    /// Per-key guard protection profile. `None` means no default config —
+    /// the caller must specify scanner configuration per request (legacy).
+    pub guard_config: Option<GuardConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +93,7 @@ async fn validate_api_key(pool: &PgPool, api_key: &str) -> Result<ApiKeyInfo, St
         WHERE key_hash = $1
           AND (expires_at IS NULL OR expires_at > NOW())
           AND revoked_at IS NULL
-        RETURNING id, organization_id, scopes, rate_limit_rpm
+        RETURNING id, organization_id, scopes, rate_limit_rpm, guard_config
         "#,
     )
     .bind(&key_hash)
@@ -66,6 +103,12 @@ async fn validate_api_key(pool: &PgPool, api_key: &str) -> Result<ApiKeyInfo, St
     match result {
         Ok(Some(row)) => {
             use sqlx::Row;
+
+            // Deserialize the JSONB guard_config column (NULL → None)
+            let guard_config: Option<GuardConfig> = row
+                .get::<Option<serde_json::Value>, _>("guard_config")
+                .and_then(|v| serde_json::from_value(v).ok());
+
             Ok(ApiKeyInfo {
                 id: row.get("id"),
                 organization_id: row.get("organization_id"),
@@ -73,6 +116,7 @@ async fn validate_api_key(pool: &PgPool, api_key: &str) -> Result<ApiKeyInfo, St
                     .get::<Option<Vec<String>>, _>("scopes")
                     .unwrap_or_default(),
                 rate_limit_rpm: row.get::<Option<i32>, _>("rate_limit_rpm").unwrap_or(60),
+                guard_config,
             })
         }
         Ok(None) => Err("Invalid API key".to_string()),
