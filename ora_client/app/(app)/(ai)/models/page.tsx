@@ -43,12 +43,19 @@ import {
   setDefaultModel,
 } from "@/lib/actions/models";
 
+interface CustomEndpointSettings {
+  request_template?: string;
+  response_path?: string;
+  method?: string;
+}
+
 interface ModelDisplay {
   id: string;
   name: string;
   provider: string;
   model: string;
   baseUrl: string | null;
+  settings: CustomEndpointSettings | null;
   isDefault: boolean | null;
   createdAt: string;
 }
@@ -138,8 +145,12 @@ export default function ModelsPage() {
     model: "",
     apiKey: "",
     baseUrl: "",
+    requestTemplate: '{"prompt": "{{prompt}}"}',
+    responsePath: "response",
+    httpMethod: "POST",
   });
 
+  const isCustomProvider = form.provider === "custom";
   const selectedProvider = PROVIDERS.find((p) => p.value === form.provider);
 
   useEffect(() => {
@@ -166,6 +177,7 @@ export default function ModelsPage() {
           provider: m.provider,
           model: m.model,
           baseUrl: m.baseUrl,
+          settings: (m.settings as CustomEndpointSettings) ?? null,
           isDefault: m.isDefault,
           createdAt: m.createdAt,
         })),
@@ -177,17 +189,38 @@ export default function ModelsPage() {
 
   const handleCreate = async () => {
     if (!form.name || !form.provider || !form.model) return;
+    if (isCustomProvider && !form.baseUrl) return;
     setIsCreating(true);
     try {
+      // Build settings for custom providers
+      const settings: Record<string, unknown> | undefined = isCustomProvider
+        ? {
+            request_template:
+              form.requestTemplate || '{"prompt": "{{prompt}}"}',
+            response_path: form.responsePath || "response",
+            method: form.httpMethod || "POST",
+          }
+        : undefined;
+
       await createModelConfig({
         name: form.name,
         provider: form.provider,
         model: form.model,
         apiKey: form.apiKey || undefined,
         baseUrl: form.baseUrl || undefined,
+        settings,
         isDefault: models.length === 0,
       });
-      setForm({ name: "", provider: "", model: "", apiKey: "", baseUrl: "" });
+      setForm({
+        name: "",
+        provider: "",
+        model: "",
+        apiKey: "",
+        baseUrl: "",
+        requestTemplate: '{"prompt": "{{prompt}}"}',
+        responsePath: "response",
+        httpMethod: "POST",
+      });
       setShowCreate(false);
       loadModels();
     } catch (err) {
@@ -268,7 +301,15 @@ export default function ModelsPage() {
                 <Select
                   value={form.provider}
                   onValueChange={(v) =>
-                    setForm({ ...form, provider: v, model: "", baseUrl: "" })
+                    setForm({
+                      ...form,
+                      provider: v,
+                      model: "",
+                      baseUrl: "",
+                      requestTemplate: '{"prompt": "{{prompt}}"}',
+                      responsePath: "response",
+                      httpMethod: "POST",
+                    })
                   }
                 >
                   <SelectTrigger>
@@ -357,6 +398,88 @@ export default function ModelsPage() {
                       Default: http://localhost:11434 (Ollama local server)
                     </p>
                   )}
+                  {isCustomProvider && (
+                    <p className="text-xs text-stone-500">
+                      The full URL to your LLM endpoint (e.g.,
+                      http://localhost:8000/ai)
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Custom Endpoint Configuration */}
+              {isCustomProvider && (
+                <div className="col-span-2 space-y-4 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+                  <p className="text-xs font-semibold uppercase text-stone-400 tracking-wide">
+                    Custom Endpoint Configuration
+                  </p>
+                  <p className="text-xs text-stone-500 -mt-2">
+                    Configure how to send prompts to your self-hosted LLM API
+                    and extract responses.
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* HTTP Method */}
+                    <div className="space-y-2">
+                      <Label>HTTP Method</Label>
+                      <Select
+                        value={form.httpMethod}
+                        onValueChange={(v) =>
+                          setForm({ ...form, httpMethod: v })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="POST">POST</SelectItem>
+                          <SelectItem value="GET">GET</SelectItem>
+                          <SelectItem value="PUT">PUT</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Response Path */}
+                    <div className="space-y-2">
+                      <Label htmlFor="responsePath">Response JSON Path</Label>
+                      <Input
+                        id="responsePath"
+                        placeholder="response"
+                        value={form.responsePath}
+                        onChange={(e) =>
+                          setForm({ ...form, responsePath: e.target.value })
+                        }
+                      />
+                      <p className="text-xs text-stone-500">
+                        Dot-path to extract text from JSON response (e.g.,{" "}
+                        <code className="text-stone-400">response</code> or{" "}
+                        <code className="text-stone-400">
+                          choices.0.message.content
+                        </code>
+                        )
+                      </p>
+                    </div>
+
+                    {/* Request Template */}
+                    <div className="space-y-2 col-span-2">
+                      <Label htmlFor="requestTemplate">
+                        Request Body Template
+                      </Label>
+                      <Input
+                        id="requestTemplate"
+                        placeholder='{"prompt": "{{prompt}}"}'
+                        value={form.requestTemplate}
+                        onChange={(e) =>
+                          setForm({ ...form, requestTemplate: e.target.value })
+                        }
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-xs text-stone-500">
+                        JSON template with{" "}
+                        <code className="text-stone-400">{"{{prompt}}"}</code>{" "}
+                        placeholder where the test prompt will be injected
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -365,7 +488,11 @@ export default function ModelsPage() {
                 <Button
                   onClick={handleCreate}
                   disabled={
-                    isCreating || !form.name || !form.provider || !form.model
+                    isCreating ||
+                    !form.name ||
+                    !form.provider ||
+                    !form.model ||
+                    (isCustomProvider && !form.baseUrl)
                   }
                 >
                   {isCreating ? "Creating..." : "Add Model"}
@@ -426,6 +553,11 @@ export default function ModelsPage() {
                         {model.baseUrl && (
                           <span className="text-xs text-stone-600">
                             • {model.baseUrl}
+                          </span>
+                        )}
+                        {model.provider === "custom" && model.settings && (
+                          <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">
+                            Endpoint configured
                           </span>
                         )}
                       </div>

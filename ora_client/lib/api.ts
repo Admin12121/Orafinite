@@ -299,6 +299,14 @@ export interface GuardStatsResponse {
 
 // --- Scan API ---
 
+export interface CustomEndpointConfig {
+  url: string;
+  method?: string;
+  request_template?: string;
+  response_path?: string;
+  headers?: Record<string, string>;
+}
+
 export interface StartScanRequest {
   model_config: {
     provider: string;
@@ -308,6 +316,33 @@ export interface StartScanRequest {
   };
   scan_type: string;
   probes: string[];
+  custom_endpoint?: CustomEndpointConfig;
+  max_prompts_per_probe?: number;
+}
+
+export interface GarakProbeInfo {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  severity_range: string;
+  default_enabled: boolean;
+  tags: string[];
+  class_paths: string[];
+  available: boolean;
+}
+
+export interface GarakProbeCategory {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  probe_ids: string[];
+}
+
+export interface ProbeListResponse {
+  categories: GarakProbeCategory[];
+  probes: GarakProbeInfo[];
 }
 
 export interface StartScanResponse {
@@ -375,6 +410,13 @@ export interface ScanResultsResponse {
     attack_prompt: string;
     model_response: string;
     recommendation: string;
+    success_rate: number | null;
+    detector_name: string | null;
+    probe_class: string | null;
+    probe_duration_ms: number | null;
+    confirmed: boolean | null;
+    retest_count: number;
+    retest_confirmed: number;
   }>;
   pagination: {
     page: number;
@@ -383,6 +425,95 @@ export interface ScanResultsResponse {
     total_pages: number;
   };
   completed_at: string | null;
+}
+
+// --- Retest API ---
+
+export interface RetestRequest {
+  vulnerability_id: string;
+  model_config: {
+    provider: string;
+    model: string;
+    api_key?: string;
+    base_url?: string;
+  };
+  num_attempts?: number;
+}
+
+export interface RetestAttemptResult {
+  attempt_number: number;
+  is_vulnerable: boolean;
+  model_response: string;
+  detector_score: number;
+  duration_ms: number;
+  error_message?: string;
+}
+
+export interface RetestResponse {
+  vulnerability_id: string;
+  probe_name: string;
+  total_attempts: number;
+  vulnerable_count: number;
+  safe_count: number;
+  confirmation_rate: number;
+  confirmed: boolean | null;
+  results: RetestAttemptResult[];
+  status: string;
+  error_message?: string;
+}
+
+// --- Scan Logs API ---
+
+export interface ProbeLogEntry {
+  id: string;
+  probe_name: string;
+  probe_class: string | null;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  prompts_sent: number;
+  prompts_passed: number;
+  prompts_failed: number;
+  detector_name: string | null;
+  error_message: string | null;
+  log_lines: string[];
+}
+
+export interface ScanLogSummary {
+  total_probes: number;
+  probes_passed: number;
+  probes_failed: number;
+  probes_errored: number;
+  total_prompts_sent: number;
+  total_duration_ms: number;
+}
+
+export interface ScanLogsResponse {
+  scan_id: string;
+  logs: ProbeLogEntry[];
+  summary: ScanLogSummary;
+}
+
+// --- Scan SSE Event Types ---
+
+export interface ScanProgressEvent {
+  scan_id: string;
+  status: string;
+  progress: number;
+  probes_completed: number;
+  probes_total: number;
+  vulnerabilities_found: number;
+}
+
+export interface ScanVulnerabilityEvent {
+  id: string;
+  probe_name: string;
+  category: string;
+  severity: string;
+  description: string;
+  success_rate: number | null;
+  detector_name: string | null;
 }
 
 // --- Guard Config (per API key) ---
@@ -465,6 +596,8 @@ export interface CreateModelConfigRequest {
   model: string;
   api_key?: string;
   base_url?: string;
+  /** Optional JSON settings (e.g. custom endpoint config for self-hosted models) */
+  settings?: Record<string, unknown>;
   is_default?: boolean;
 }
 
@@ -558,12 +691,17 @@ export const scanApi = {
     api.post<StartScanResponse>("/v1/scan/start", data),
   listScans: (limit = 20) =>
     api.get<ListScansResponse>(`/v1/scan/list?limit=${limit}`),
+  listProbes: () => api.get<ProbeListResponse>("/v1/scan/probes"),
   getScanStatus: (scanId: string) =>
     api.get<ScanStatusResponse>(`/v1/scan/${scanId}`),
   getScanResults: (scanId: string, page = 1, perPage = 50) =>
     api.get<ScanResultsResponse>(
       `/v1/scan/${scanId}/results?page=${page}&per_page=${perPage}`,
     ),
+  retestVulnerability: (data: RetestRequest) =>
+    api.post<RetestResponse>("/v1/scan/retest", data),
+  getScanLogs: (scanId: string) =>
+    api.get<ScanLogsResponse>(`/v1/scan/${scanId}/logs`),
 };
 
 export const apiKeysApi = {

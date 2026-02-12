@@ -1,6 +1,11 @@
 "use server";
 
 import { scanApi } from "@/lib/api";
+import type {
+  CustomEndpointConfig,
+  GarakProbeInfo,
+  GarakProbeCategory,
+} from "@/lib/api";
 
 export interface Scan {
   id: string;
@@ -29,6 +34,73 @@ export interface ScanResult {
   attackPrompt: string;
   modelResponse: string;
   recommendation: string;
+  successRate?: number | null;
+  detectorName?: string | null;
+  probeClass?: string | null;
+  probeDurationMs?: number | null;
+  confirmed?: boolean | null;
+  retestCount?: number;
+  retestConfirmed?: number;
+}
+
+export interface RetestInput {
+  vulnerabilityId: string;
+  provider: string;
+  model: string;
+  apiKey?: string;
+  baseUrl?: string;
+  numAttempts?: number;
+}
+
+export interface RetestResult {
+  vulnerabilityId: string;
+  probeName: string;
+  totalAttempts: number;
+  vulnerableCount: number;
+  safeCount: number;
+  confirmationRate: number;
+  confirmed: boolean | null;
+  results: Array<{
+    attemptNumber: number;
+    isVulnerable: boolean;
+    modelResponse: string;
+    detectorScore: number;
+    durationMs: number;
+    errorMessage?: string;
+  }>;
+  status: string;
+  errorMessage?: string;
+}
+
+export interface ProbeLog {
+  id: string;
+  probeName: string;
+  probeClass: string | null;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  promptsSent: number;
+  promptsPassed: number;
+  promptsFailed: number;
+  detectorName: string | null;
+  errorMessage: string | null;
+  logLines: string[];
+}
+
+export interface ScanLogSummary {
+  totalProbes: number;
+  probesPassed: number;
+  probesFailed: number;
+  probesErrored: number;
+  totalPromptsSent: number;
+  totalDurationMs: number;
+}
+
+export interface ScanLogsResult {
+  scanId: string;
+  logs: ProbeLog[];
+  summary: ScanLogSummary;
 }
 
 export interface StartScanInput {
@@ -38,6 +110,14 @@ export interface StartScanInput {
   model: string;
   apiKey?: string;
   baseUrl?: string;
+  probes?: string[];
+  customEndpoint?: CustomEndpointConfig;
+  maxPromptsPerProbe?: number;
+}
+
+export interface ProbeListResult {
+  categories: GarakProbeCategory[];
+  probes: GarakProbeInfo[];
 }
 
 /**
@@ -60,7 +140,9 @@ export async function startScan(input: StartScanInput): Promise<
       base_url: input.baseUrl,
     },
     scan_type: input.scanType,
-    probes: [],
+    probes: input.probes ?? [],
+    custom_endpoint: input.customEndpoint,
+    max_prompts_per_probe: input.maxPromptsPerProbe,
   });
 
   if (error) {
@@ -155,5 +237,112 @@ export async function getScanResults(scanId: string): Promise<ScanResult[]> {
     attackPrompt: v.attack_prompt,
     modelResponse: v.model_response,
     recommendation: v.recommendation,
+    successRate: v.success_rate,
+    detectorName: v.detector_name,
+    probeClass: v.probe_class,
+    probeDurationMs: v.probe_duration_ms,
+    confirmed: v.confirmed,
+    retestCount: v.retest_count,
+    retestConfirmed: v.retest_confirmed,
   }));
+}
+
+/**
+ * Retest a specific vulnerability by re-running the same attack prompt multiple times
+ * Calls Rust API: POST /v1/scan/retest
+ */
+export async function retestVulnerability(
+  input: RetestInput,
+): Promise<RetestResult | { error: string }> {
+  const { data, error } = await scanApi.retestVulnerability({
+    vulnerability_id: input.vulnerabilityId,
+    model_config: {
+      provider: input.provider,
+      model: input.model,
+      api_key: input.apiKey,
+      base_url: input.baseUrl,
+    },
+    num_attempts: input.numAttempts ?? 3,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {
+    vulnerabilityId: data.vulnerability_id,
+    probeName: data.probe_name,
+    totalAttempts: data.total_attempts,
+    vulnerableCount: data.vulnerable_count,
+    safeCount: data.safe_count,
+    confirmationRate: data.confirmation_rate,
+    confirmed: data.confirmed,
+    results: data.results.map((r) => ({
+      attemptNumber: r.attempt_number,
+      isVulnerable: r.is_vulnerable,
+      modelResponse: r.model_response,
+      detectorScore: r.detector_score,
+      durationMs: r.duration_ms,
+      errorMessage: r.error_message,
+    })),
+    status: data.status,
+    errorMessage: data.error_message,
+  };
+}
+
+/**
+ * Get detailed per-probe execution logs for a scan
+ * Calls Rust API: GET /v1/scan/{scanId}/logs
+ */
+/**
+ * List all available Garak probes with metadata for the probe picker UI
+ * Calls Rust API: GET /v1/scan/probes
+ */
+export async function listProbes(): Promise<ProbeListResult> {
+  const { data, error } = await scanApi.listProbes();
+  if (error) {
+    console.error("Failed to list probes:", error.message);
+    return { categories: [], probes: [] };
+  }
+  return {
+    categories: data.categories,
+    probes: data.probes,
+  };
+}
+
+export async function getScanLogs(
+  scanId: string,
+): Promise<ScanLogsResult | { error: string }> {
+  const { data, error } = await scanApi.getScanLogs(scanId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {
+    scanId: data.scan_id,
+    logs: data.logs.map((l) => ({
+      id: l.id,
+      probeName: l.probe_name,
+      probeClass: l.probe_class,
+      status: l.status,
+      startedAt: l.started_at,
+      completedAt: l.completed_at,
+      durationMs: l.duration_ms,
+      promptsSent: l.prompts_sent,
+      promptsPassed: l.prompts_passed,
+      promptsFailed: l.prompts_failed,
+      detectorName: l.detector_name,
+      errorMessage: l.error_message,
+      logLines: l.log_lines,
+    })),
+    summary: {
+      totalProbes: data.summary.total_probes,
+      probesPassed: data.summary.probes_passed,
+      probesFailed: data.summary.probes_failed,
+      probesErrored: data.summary.probes_errored,
+      totalPromptsSent: data.summary.total_prompts_sent,
+      totalDurationMs: data.summary.total_duration_ms,
+    },
+  };
 }

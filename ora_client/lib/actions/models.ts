@@ -21,6 +21,8 @@ export interface CreateModelInput {
   model: string;
   apiKey?: string;
   baseUrl?: string;
+  /** Optional JSON settings (e.g. custom endpoint config for self-hosted models) */
+  settings?: Record<string, unknown>;
   isDefault?: boolean;
 }
 
@@ -63,6 +65,7 @@ export async function createModelConfig(
     model: input.model,
     api_key: input.apiKey,
     base_url: input.baseUrl,
+    settings: input.settings,
     is_default: input.isDefault,
   });
   if (error) {
