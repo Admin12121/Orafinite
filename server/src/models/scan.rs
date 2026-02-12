@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Scan {
     pub id: Uuid,
@@ -21,6 +22,7 @@ pub struct Scan {
     pub created_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScanStatus {
@@ -31,6 +33,7 @@ pub enum ScanStatus {
     Cancelled,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScanResult {
     pub id: Uuid,
@@ -45,6 +48,7 @@ pub struct ScanResult {
     pub created_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {

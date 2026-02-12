@@ -11,8 +11,8 @@ pub mod ml_service {
 
 use ml_service::ml_service_client::MlServiceClient;
 use ml_service::{
-    AdvancedScanRequest, Empty, GarakRequest, GarakStatusRequest, OutputScanRequest,
-    ScanMode as ProtoScanMode, ScanRequest, ScannerConfig,
+    AdvancedScanRequest, CustomEndpointConfig, Empty, GarakRequest, GarakStatusRequest,
+    OutputScanRequest, RetestRequest, ScanMode as ProtoScanMode, ScanRequest, ScannerConfig,
 };
 
 // ============================================
@@ -36,6 +36,13 @@ const GARAK_START_TIMEOUT_SECS: u64 = 30;
 
 /// Timeout for getting Garak status
 const GARAK_STATUS_TIMEOUT_SECS: u64 = 15;
+
+/// Timeout for retest operations (single probe, multiple attempts)
+const RETEST_TIMEOUT_SECS: u64 = 120;
+
+/// Timeout for fetching scan logs
+#[allow(dead_code)]
+const SCAN_LOGS_TIMEOUT_SECS: u64 = 15;
 
 // ============================================
 // Scan Mode (mirrors proto ScanMode)
@@ -353,7 +360,17 @@ impl MlClient {
         model_config: ModelConfig,
         probes: Vec<String>,
         scan_type: &str,
+        custom_endpoint: Option<CustomEndpointInfo>,
+        max_prompts_per_probe: Option<i32>,
     ) -> Result<String, tonic::Status> {
+        let proto_custom_endpoint = custom_endpoint.map(|ce| CustomEndpointConfig {
+            url: ce.url,
+            method: ce.method,
+            request_template: ce.request_template,
+            response_path: ce.response_path,
+            headers: ce.headers,
+        });
+
         let mut request = tonic::Request::new(GarakRequest {
             provider: model_config.provider,
             model: model_config.model,
@@ -361,11 +378,67 @@ impl MlClient {
             base_url: model_config.base_url.unwrap_or_default(),
             probes,
             scan_type: scan_type.to_string(),
+            custom_endpoint: proto_custom_endpoint,
+            max_prompts_per_probe: max_prompts_per_probe.unwrap_or(0),
         });
         request.set_timeout(Duration::from_secs(GARAK_START_TIMEOUT_SECS));
 
         let response = self.client.start_garak_scan(request).await?;
         Ok(response.into_inner().scan_id)
+    }
+
+    /// Cancel a running Garak scan
+    ///
+    /// Sends a cancel request to the ML sidecar. The scan will stop
+    /// after the current probe finishes (probes are not interrupted mid-execution).
+    #[allow(dead_code)]
+    pub async fn cancel_garak_scan(&mut self, scan_id: &str) -> Result<String, tonic::Status> {
+        let mut request = tonic::Request::new(GarakStatusRequest {
+            scan_id: scan_id.to_string(),
+        });
+        request.set_timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
+
+        let response = self.client.cancel_garak_scan(request).await?;
+        let res = response.into_inner();
+        Ok(res.status)
+    }
+
+    /// List all available Garak probes with metadata for the frontend probe picker
+    pub async fn list_garak_probes(&mut self) -> Result<GarakProbeListResult, tonic::Status> {
+        let mut request = tonic::Request::new(Empty {});
+        request.set_timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
+
+        let response = self.client.list_garak_probes(request).await?;
+        let res = response.into_inner();
+
+        Ok(GarakProbeListResult {
+            categories: res
+                .categories
+                .into_iter()
+                .map(|c| GarakProbeCategoryInfo {
+                    id: c.id,
+                    name: c.name,
+                    description: c.description,
+                    icon: c.icon,
+                    probe_ids: c.probe_ids,
+                })
+                .collect(),
+            probes: res
+                .probes
+                .into_iter()
+                .map(|p| GarakProbeInfoItem {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                    category: p.category,
+                    severity_range: p.severity_range,
+                    default_enabled: p.default_enabled,
+                    tags: p.tags,
+                    class_paths: p.class_paths,
+                    available: p.available,
+                })
+                .collect(),
+        })
     }
 
     /// Get status of a Garak scan
@@ -401,9 +474,123 @@ impl MlClient {
                     attack_prompt: v.attack_prompt,
                     model_response: v.model_response,
                     recommendation: v.recommendation,
+                    success_rate: v.success_rate,
+                    detector_name: v.detector_name,
+                    probe_class: v.probe_class,
+                    probe_duration_ms: v.probe_duration_ms,
+                })
+                .collect(),
+            probe_logs: res
+                .probe_logs
+                .into_iter()
+                .map(|pl| ProbeLogInfo {
+                    probe_name: pl.probe_name,
+                    probe_class: pl.probe_class,
+                    status: pl.status,
+                    started_at_ms: pl.started_at_ms,
+                    completed_at_ms: pl.completed_at_ms,
+                    duration_ms: pl.duration_ms,
+                    prompts_sent: pl.prompts_sent,
+                    prompts_passed: pl.prompts_passed,
+                    prompts_failed: pl.prompts_failed,
+                    detector_name: pl.detector_name,
+                    detector_scores: pl.detector_scores,
+                    error_message: pl.error_message,
+                    log_lines: pl.log_lines,
                 })
                 .collect(),
             error_message: res.error_message,
+        })
+    }
+
+    /// Retest a specific vulnerability by re-running the probe/prompt multiple times
+    ///
+    /// Sends the exact same attack prompt to the model `num_attempts` times
+    /// and evaluates each response to see if the vulnerability is consistently reproducible.
+    pub async fn retest_probe(
+        &mut self,
+        scan_id: &str,
+        probe_name: &str,
+        probe_class: &str,
+        attack_prompt: &str,
+        model_config: ModelConfig,
+        num_attempts: i32,
+    ) -> Result<RetestResultInfo, tonic::Status> {
+        let mut request = tonic::Request::new(RetestRequest {
+            scan_id: scan_id.to_string(),
+            probe_name: probe_name.to_string(),
+            probe_class: probe_class.to_string(),
+            attack_prompt: attack_prompt.to_string(),
+            provider: model_config.provider,
+            model: model_config.model,
+            api_key: model_config.api_key.unwrap_or_default(),
+            base_url: model_config.base_url.unwrap_or_default(),
+            num_attempts,
+        });
+        request.set_timeout(Duration::from_secs(RETEST_TIMEOUT_SECS));
+
+        let response = self.client.retest_probe(request).await?;
+        let res = response.into_inner();
+
+        Ok(RetestResultInfo {
+            probe_name: res.probe_name,
+            attack_prompt: res.attack_prompt,
+            total_attempts: res.total_attempts,
+            vulnerable_count: res.vulnerable_count,
+            safe_count: res.safe_count,
+            confirmation_rate: res.confirmation_rate,
+            results: res
+                .results
+                .into_iter()
+                .map(|r| RetestAttemptInfo {
+                    attempt_number: r.attempt_number,
+                    is_vulnerable: r.is_vulnerable,
+                    model_response: r.model_response,
+                    detector_score: r.detector_score,
+                    duration_ms: r.duration_ms,
+                    error_message: r.error_message,
+                })
+                .collect(),
+            status: res.status,
+            error_message: res.error_message,
+        })
+    }
+
+    /// Get detailed per-probe execution logs for a scan
+    #[allow(dead_code)]
+    pub async fn get_scan_logs(&mut self, scan_id: &str) -> Result<ScanLogsResult, tonic::Status> {
+        let mut request = tonic::Request::new(GarakStatusRequest {
+            scan_id: scan_id.to_string(),
+        });
+        request.set_timeout(Duration::from_secs(SCAN_LOGS_TIMEOUT_SECS));
+
+        let response = self.client.get_scan_logs(request).await?;
+        let res = response.into_inner();
+
+        Ok(ScanLogsResult {
+            scan_id: res.scan_id,
+            logs: res
+                .logs
+                .into_iter()
+                .map(|pl| ProbeLogInfo {
+                    probe_name: pl.probe_name,
+                    probe_class: pl.probe_class,
+                    status: pl.status,
+                    started_at_ms: pl.started_at_ms,
+                    completed_at_ms: pl.completed_at_ms,
+                    duration_ms: pl.duration_ms,
+                    prompts_sent: pl.prompts_sent,
+                    prompts_passed: pl.prompts_passed,
+                    prompts_failed: pl.prompts_failed,
+                    detector_name: pl.detector_name,
+                    detector_scores: pl.detector_scores,
+                    error_message: pl.error_message,
+                    log_lines: pl.log_lines,
+                })
+                .collect(),
+            total_probes: res.total_probes,
+            total_prompts_sent: res.total_prompts_sent,
+            total_duration_ms: res.total_duration_ms,
         })
     }
 }
@@ -416,7 +603,9 @@ impl MlClient {
 pub struct HealthInfo {
     pub healthy: bool,
     pub version: String,
+    #[allow(dead_code)]
     pub available_input_scanners: Vec<String>,
+    #[allow(dead_code)]
     pub available_output_scanners: Vec<String>,
 }
 
@@ -528,6 +717,7 @@ pub struct AdvancedScanResult {
     pub output_results: Vec<ScannerResultInfo>,
 
     /// Total scan latency in milliseconds
+    #[allow(dead_code)]
     pub latency_ms: i32,
 
     /// Which scan mode was executed
@@ -574,8 +764,56 @@ pub struct ModelConfig {
     pub base_url: Option<String>,
 }
 
+/// Custom REST endpoint configuration for arbitrary user APIs
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CustomEndpointInfo {
+    /// The API endpoint URL (e.g. http://localhost:8000/ai)
+    pub url: String,
+    /// HTTP method — default POST
+    pub method: String,
+    /// JSON request body template with {{prompt}} placeholder
+    pub request_template: String,
+    /// Dot-path to extract response text from JSON response
+    pub response_path: String,
+    /// Optional additional HTTP headers
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
+/// Result from listing available Garak probes
+#[derive(Debug)]
+pub struct GarakProbeListResult {
+    pub categories: Vec<GarakProbeCategoryInfo>,
+    pub probes: Vec<GarakProbeInfoItem>,
+}
+
+/// Metadata about a probe category
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GarakProbeCategoryInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub probe_ids: Vec<String>,
+}
+
+/// Metadata about a single probe
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GarakProbeInfoItem {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub severity_range: String,
+    pub default_enabled: bool,
+    pub tags: Vec<String>,
+    pub class_paths: Vec<String>,
+    pub available: bool,
+}
+
 #[derive(Debug)]
 pub struct GarakStatusResult {
+    #[allow(dead_code)]
     pub scan_id: String,
     pub status: String,
     pub progress: i32,
@@ -583,10 +821,11 @@ pub struct GarakStatusResult {
     pub probes_total: i32,
     pub vulnerabilities_found: i32,
     pub vulnerabilities: Vec<VulnerabilityInfo>,
+    pub probe_logs: Vec<ProbeLogInfo>,
     pub error_message: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct VulnerabilityInfo {
     pub probe_name: String,
     pub category: String,
@@ -595,4 +834,62 @@ pub struct VulnerabilityInfo {
     pub attack_prompt: String,
     pub model_response: String,
     pub recommendation: String,
+    pub success_rate: f32,
+    pub detector_name: String,
+    pub probe_class: String,
+    pub probe_duration_ms: i32,
+}
+
+/// Detailed per-probe execution log entry
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProbeLogInfo {
+    pub probe_name: String,
+    pub probe_class: String,
+    pub status: String,
+    pub started_at_ms: i64,
+    pub completed_at_ms: i64,
+    pub duration_ms: i32,
+    pub prompts_sent: i32,
+    pub prompts_passed: i32,
+    pub prompts_failed: i32,
+    pub detector_name: String,
+    pub detector_scores: Vec<f32>,
+    pub error_message: String,
+    pub log_lines: Vec<String>,
+}
+
+/// Result of a retest operation
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetestResultInfo {
+    pub probe_name: String,
+    pub attack_prompt: String,
+    pub total_attempts: i32,
+    pub vulnerable_count: i32,
+    pub safe_count: i32,
+    pub confirmation_rate: f32,
+    pub results: Vec<RetestAttemptInfo>,
+    pub status: String,
+    pub error_message: String,
+}
+
+/// Result of a single retest attempt
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetestAttemptInfo {
+    pub attempt_number: i32,
+    pub is_vulnerable: bool,
+    pub model_response: String,
+    pub detector_score: f32,
+    pub duration_ms: i32,
+    pub error_message: String,
+}
+
+/// Full scan logs result
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScanLogsResult {
+    pub scan_id: String,
+    pub logs: Vec<ProbeLogInfo>,
+    pub total_probes: i32,
+    pub total_prompts_sent: i32,
+    pub total_duration_ms: i32,
 }

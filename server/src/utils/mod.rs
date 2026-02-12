@@ -29,10 +29,10 @@ pub fn hash_prompt(prompt: &str) -> String {
 
 pub mod encryption {
     use aes_gcm::{
-        aead::{Aead, KeyInit, OsRng},
         Aes256Gcm, Nonce,
+        aead::{Aead, KeyInit, OsRng},
     };
-    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
     use rand::RngCore;
     use sha2::{Digest, Sha256};
 
@@ -81,6 +81,7 @@ pub mod encryption {
 
     /// Decrypt base64-encoded AES-256-GCM ciphertext.
     /// Expects: nonce(12 bytes) || ciphertext || tag(16 bytes)
+    #[allow(dead_code)]
     pub fn decrypt(encrypted: &str) -> Result<String, String> {
         let secret = get_encryption_key();
         let key_bytes = derive_key(&secret);

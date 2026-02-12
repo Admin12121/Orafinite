@@ -1,8 +1,8 @@
 // Redis cache module
 
-use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
-use serde::{de::DeserializeOwned, Serialize};
+use redis::aio::ConnectionManager;
+use serde::{Serialize, de::DeserializeOwned};
 
 pub struct CacheService {
     conn: ConnectionManager,
@@ -20,7 +20,12 @@ impl CacheService {
     }
 
     /// Set a cached value with TTL in seconds
-    pub async fn set<T: Serialize>(&mut self, key: &str, value: &T, ttl_seconds: u64) -> Result<(), redis::RedisError> {
+    pub async fn set<T: Serialize>(
+        &mut self,
+        key: &str,
+        value: &T,
+        ttl_seconds: u64,
+    ) -> Result<(), redis::RedisError> {
         let json = serde_json::to_string(value).unwrap();
         self.conn.set_ex(key, json, ttl_seconds).await
     }
@@ -51,7 +56,11 @@ impl CacheService {
             let _: () = self.conn.expire(&cache_key, window_seconds as i64).await?;
         }
 
-        let ttl: i64 = self.conn.ttl(&cache_key).await.unwrap_or(window_seconds as i64);
+        let ttl: i64 = self
+            .conn
+            .ttl(&cache_key)
+            .await
+            .unwrap_or(window_seconds as i64);
         let remaining = max_requests.saturating_sub(new_count);
 
         Ok((true, remaining, ttl.max(0) as u64))

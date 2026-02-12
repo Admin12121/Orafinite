@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     Router,
-    http::{Method, header},
+    http::{Method, Request, header},
     routing::get,
 };
 use sqlx::postgres::PgPoolOptions;
@@ -108,13 +108,33 @@ async fn main() -> Result<()> {
 
     // Build router
     let app = Router::new()
-        // Health check
+        // Lightweight liveness probe for Docker healthchecks (no DB/Redis/ML calls)
+        .route("/ping", get(api::health::ping))
+        // Full diagnostic health check (on-demand only)
         .route("/health", get(api::health::health_check))
         // API v1
         .nest("/v1", api::routes::v1_routes())
         // State and middleware
         .with_state(app_state)
-        .layer(TraceLayer::new_for_http())
+        // Filter /ping out of request logging to eliminate healthcheck noise
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
+                if request.uri().path() == "/ping" {
+                    // Use TRACE level for /ping so it's hidden at normal log levels
+                    tracing::trace_span!(
+                        "request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                    )
+                } else {
+                    tracing::info_span!(
+                        "request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                    )
+                }
+            }),
+        )
         .layer(cors);
 
     // Start server

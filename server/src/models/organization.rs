@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Organization {
     pub id: Uuid,
@@ -13,6 +14,7 @@ pub struct Organization {
     pub updated_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiKey {
     pub id: Uuid,
