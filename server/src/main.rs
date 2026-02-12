@@ -11,7 +11,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod api;
 mod db;
+mod grpc;
+mod middleware;
+mod models;
 mod utils;
+
+use db::write_buffer::WriteBuffer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,6 +49,26 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     tracing::info!("Database migrations completed");
+
+    // Redis connection
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
+
+    let redis_client = redis::Client::open(redis_url)?;
+    let redis_conn = redis::aio::ConnectionManager::new(redis_client).await?;
+
+    tracing::info!("Connected to Redis");
+
+    // ML Sidecar URL
+    let ml_sidecar_url =
+        std::env::var("ML_SIDECAR_URL").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+
+    tracing::info!("ML Sidecar URL: {}", ml_sidecar_url);
+
+    // Start the async write buffer for high-throughput guard log inserts
+    let write_buffer = WriteBuffer::spawn(pool.clone());
+
+    // Build application state with circuit breaker and write buffer
+    let app_state = api::AppState::new(pool, redis_conn, ml_sidecar_url, write_buffer);
 
     // Configure CORS - allow Next.js frontend origins
     // Supports comma-separated list of origins for multiple environments

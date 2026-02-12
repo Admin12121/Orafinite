@@ -1,6 +1,6 @@
 use axum::{
-    http::{header, StatusCode},
     Json,
+    http::{StatusCode, header},
 };
 use serde::Serialize;
 use sqlx::PgPool;
@@ -51,15 +51,12 @@ async fn validate_api_key(pool: &PgPool, api_key: &str) -> Result<ApiKeyInfo, St
 
     let result = sqlx::query(
         r#"
-        SELECT
-            ak.id,
-            ak.organization_id,
-            ak.scopes,
-            ak.rate_limit_rpm
-        FROM api_key ak
-        WHERE ak.key_hash = $1
-          AND (ak.expires_at IS NULL OR ak.expires_at > NOW())
-          AND ak.revoked_at IS NULL
+        UPDATE api_key
+        SET last_used_at = NOW()
+        WHERE key_hash = $1
+          AND (expires_at IS NULL OR expires_at > NOW())
+          AND revoked_at IS NULL
+        RETURNING id, organization_id, scopes, rate_limit_rpm
         "#,
     )
     .bind(&key_hash)

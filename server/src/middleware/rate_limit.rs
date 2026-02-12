@@ -50,9 +50,27 @@ pub fn rate_limit_key(api_key: Option<&str>, ip: Option<&str>) -> String {
 
 pub const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;
 
-/// Monthly quota: 10,000 requests per API key (Basic plan)
-/// TODO: Replace with plan-based lookup from database when pricing tiers are implemented
-pub const MONTHLY_QUOTA_BASIC: u32 = 10_000;
+/// Default RPM for new API keys (matches migration 003 default)
+pub const DEFAULT_RATE_LIMIT_RPM: u32 = 1_000;
+
+/// Monthly quota: 100,000 requests per API key (Basic plan)
+/// Production-ready default — supports ~2.3 req/s sustained over 30 days
+pub const MONTHLY_QUOTA_BASIC: u32 = 100_000;
+
+/// Monthly quota for Pro plan
+pub const MONTHLY_QUOTA_PRO: u32 = 1_000_000;
+
+/// Monthly quota for Enterprise plan (effectively unlimited)
+pub const MONTHLY_QUOTA_ENTERPRISE: u32 = 10_000_000;
+
+/// Look up the monthly quota for a given plan name
+pub fn monthly_quota_for_plan(plan: &str) -> u32 {
+    match plan {
+        "pro" => MONTHLY_QUOTA_PRO,
+        "enterprise" => MONTHLY_QUOTA_ENTERPRISE,
+        _ => MONTHLY_QUOTA_BASIC, // "basic" or any unknown plan
+    }
+}
 
 /// Seconds in ~30 days (used as Redis TTL for monthly counters)
 const MONTHLY_WINDOW_SECONDS: u64 = 30 * 24 * 60 * 60;
