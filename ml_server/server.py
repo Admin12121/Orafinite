@@ -1,9 +1,13 @@
 """
-Orafinite ML Sidecar - gRPC Server
-Provides LLM Guard and Garak functionality to the Rust API
+Orafinite ML Sidecar - gRPC Server (GPU-ONLY)
+Provides LLM Guard and Garak functionality to the Rust API.
+
+This sidecar REQUIRES an NVIDIA GPU with CUDA support.
+It will refuse to start if no GPU is detected.
 """
 
 import asyncio
+import json
 import os
 import threading
 import time
@@ -16,11 +20,12 @@ import grpc
 # Import generated protobuf code
 import ml_service_pb2
 import ml_service_pb2_grpc
+import torch
 from loguru import logger
 from scanners.garak_scanner import GarakScanner
 
 # Import scanners
-from scanners.llm_guard_scanner import LLMGuardScanner
+from scanners.llm_guard_scanner import LLMGuardScanner, _parse_settings
 
 # Configuration
 SCAN_RETENTION_SECONDS = 3600  # Keep completed scans for 1 hour
@@ -33,19 +38,36 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
     """gRPC service implementation for ML operations"""
 
     def __init__(self):
-        logger.info("Initializing ML Service...")
+        logger.info("Initializing ML Service (GPU-ONLY mode)...")
 
-        # Initialize LLM Guard scanner (loads models into memory)
-        # NO FALLBACK — if this fails, the sidecar crashes immediately
-        device = os.environ.get("LLM_GUARD_DEVICE", "cpu")
+        # ── GPU gate — refuse to start without CUDA ──────────────────
+        if not torch.cuda.is_available():
+            logger.critical(
+                "❌ FATAL: No NVIDIA GPU detected (torch.cuda.is_available() == False).\n"
+                "This sidecar is GPU-ONLY and will NOT run on CPU.\n"
+                "Requirements:\n"
+                "  • NVIDIA GPU with CUDA support\n"
+                "  • NVIDIA driver installed on the host\n"
+                "  • NVIDIA Container Toolkit installed (for Docker)\n"
+                "  • Container started with --gpus all (or deploy.resources.reservations in compose)\n"
+                "Verify with: docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi"
+            )
+            raise SystemExit(1)
+
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+        logger.info(f"✅ NVIDIA GPU detected: {gpu_name} ({gpu_mem:.1f} GB)")
+
+        # Initialize LLM Guard scanner on CUDA — NO CPU FALLBACK
+        device = "cuda"
         logger.info(f"Using device: {device}")
         try:
             self.llm_guard = LLMGuardScanner(device=device)
         except Exception as e:
             logger.critical(
-                f"❌ FATAL: LLM Guard failed to initialize: {e}\n"
-                "The sidecar CANNOT start without real LLM Guard ML models.\n"
-                "Make sure 'llm-guard' and its dependencies (torch, transformers) "
+                f"❌ FATAL: LLM Guard failed to initialize on GPU: {e}\n"
+                "The sidecar CANNOT start without real LLM Guard ML models on CUDA.\n"
+                "Make sure 'llm-guard' and its dependencies (torch+cuda, transformers) "
                 "are installed correctly.\n"
                 "Run: pip install llm-guard torch transformers"
             )
@@ -63,7 +85,7 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
         self._cleanup_thread.start()
 
         logger.info(
-            "✅ ML Service initialized successfully — using REAL LLM Guard ML models"
+            "✅ ML Service initialized successfully — GPU-ONLY with REAL LLM Guard ML models"
         )
 
     def _cleanup_loop(self):
@@ -127,7 +149,12 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
         """Health check endpoint — confirms real LLM Guard is loaded"""
         # If we got here, LLM Guard is initialized (sidecar would have
         # crashed on startup otherwise). Report healthy.
-        return ml_service_pb2.HealthResponse(healthy=True, version="0.1.0-llmguard")
+        return ml_service_pb2.HealthResponse(
+            healthy=True,
+            version="0.2.0-llmguard-advanced",
+            available_input_scanners=LLMGuardScanner.get_available_input_scanners(),
+            available_output_scanners=LLMGuardScanner.get_available_output_scanners(),
+        )
 
     def ScanPrompt(self, request, context):
         """Scan a prompt using LLM Guard"""
@@ -217,6 +244,118 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"Output scan failed: {str(e)}")
             return ml_service_pb2.OutputScanResponse()
+
+    def AdvancedScan(self, request, context):
+        """
+        Advanced scan with full per-scanner configuration.
+        Supports all LLM Guard input and output scanners with per-scanner
+        settings, scan_mode (PROMPT_ONLY/OUTPUT_ONLY/BOTH), and fail_fast.
+        """
+        start_time = time.time()
+
+        scan_mode = request.scan_mode  # 0=PROMPT_ONLY, 1=OUTPUT_ONLY, 2=BOTH
+
+        # Validate inputs based on scan_mode
+        if scan_mode in (0, 2) and not request.prompt:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Prompt is required for PROMPT_ONLY or BOTH scan modes")
+            return ml_service_pb2.AdvancedScanResponse()
+
+        if scan_mode in (1, 2) and not request.output:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Output is required for OUTPUT_ONLY or BOTH scan modes")
+            return ml_service_pb2.AdvancedScanResponse()
+
+        # Size limits
+        if request.prompt and len(request.prompt) > 64 * 1024:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Prompt exceeds maximum length of 64KB")
+            return ml_service_pb2.AdvancedScanResponse()
+
+        if request.output and len(request.output) > 64 * 1024:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Output exceeds maximum length of 64KB")
+            return ml_service_pb2.AdvancedScanResponse()
+
+        try:
+            # Convert proto scanner configs to dicts
+            input_scanner_configs = None
+            if request.input_scanners:
+                input_scanner_configs = {}
+                for name, cfg in request.input_scanners.items():
+                    input_scanner_configs[name] = {
+                        "enabled": cfg.enabled,
+                        "threshold": cfg.threshold if cfg.threshold > 0 else 0.5,
+                        "settings": _parse_settings(cfg.settings_json),
+                    }
+
+            output_scanner_configs = None
+            if request.output_scanners:
+                output_scanner_configs = {}
+                for name, cfg in request.output_scanners.items():
+                    output_scanner_configs[name] = {
+                        "enabled": cfg.enabled,
+                        "threshold": cfg.threshold if cfg.threshold > 0 else 0.5,
+                        "settings": _parse_settings(cfg.settings_json),
+                    }
+
+            # Execute advanced scan
+            result = self.llm_guard.advanced_scan(
+                prompt=request.prompt,
+                output=request.output,
+                scan_mode=scan_mode,
+                input_scanner_configs=input_scanner_configs,
+                output_scanner_configs=output_scanner_configs,
+                sanitize=request.sanitize,
+                fail_fast=request.fail_fast,
+            )
+
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            # Build proto input results
+            input_results = [
+                ml_service_pb2.ScannerResult(
+                    scanner_name=r["scanner_name"],
+                    is_valid=r["is_valid"],
+                    score=r["score"],
+                    description=r.get("description", ""),
+                    severity=r.get("severity", "low"),
+                    scanner_latency_ms=r.get("scanner_latency_ms", 0),
+                )
+                for r in result.get("input_results", [])
+            ]
+
+            # Build proto output results
+            output_results = [
+                ml_service_pb2.ScannerResult(
+                    scanner_name=r["scanner_name"],
+                    is_valid=r["is_valid"],
+                    score=r["score"],
+                    description=r.get("description", ""),
+                    severity=r.get("severity", "low"),
+                    scanner_latency_ms=r.get("scanner_latency_ms", 0),
+                )
+                for r in result.get("output_results", [])
+            ]
+
+            return ml_service_pb2.AdvancedScanResponse(
+                safe=result["safe"],
+                sanitized_prompt=result.get("sanitized_prompt", ""),
+                sanitized_output=result.get("sanitized_output", ""),
+                risk_score=result.get("risk_score", 0.0),
+                input_results=input_results,
+                output_results=output_results,
+                latency_ms=latency_ms,
+                scan_mode=scan_mode,
+                input_scanners_run=result.get("input_scanners_run", 0),
+                output_scanners_run=result.get("output_scanners_run", 0),
+            )
+
+        except Exception as e:
+            logger.error(f"Error in AdvancedScan: {e}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Advanced scan failed: {str(e)}")
+            return ml_service_pb2.AdvancedScanResponse()
 
     def StartGarakScan(self, request, context):
         """Start a Garak vulnerability scan"""
