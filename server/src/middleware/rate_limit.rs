@@ -51,6 +51,7 @@ pub fn rate_limit_key(api_key: Option<&str>, ip: Option<&str>) -> String {
 pub const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;
 
 /// Default RPM for new API keys (matches migration 003 default)
+#[allow(dead_code)]
 pub const DEFAULT_RATE_LIMIT_RPM: u32 = 1_000;
 
 /// Monthly quota: 100,000 requests per API key (Basic plan)

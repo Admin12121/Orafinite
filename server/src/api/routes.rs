@@ -20,8 +20,13 @@ use super::{api_keys, auth, events, guard, guard_logs, models, organization, sca
 /// ## Garak Scanner Routes (Session Required)
 /// - POST /scan/start - Start vulnerability scan
 /// - GET  /scan/list - List user's scans
+/// - GET  /scan/probes - List all available Garak probes for the probe picker UI
+/// - POST /scan/retest - Retest a specific vulnerability
 /// - GET  /scan/{scan_id} - Get scan status
+/// - POST /scan/{scan_id}/cancel - Cancel a running scan
 /// - GET  /scan/{scan_id}/results - Get scan results
+/// - GET  /scan/{scan_id}/logs - Get verbose per-probe execution logs
+/// - GET  /scan/{scan_id}/events - SSE stream of real-time scan events
 ///
 /// ## API Key Management (Session Required)
 /// - POST /api-keys - Create API key
@@ -33,6 +38,7 @@ use super::{api_keys, auth, events, guard, guard_logs, models, organization, sca
 /// ## Model Configuration (Session Required)
 /// - POST /models - Create model config
 /// - GET  /models - List model configs
+/// - PUT  /models/{model_id} - Update model config
 /// - DELETE /models/{model_id} - Delete model config
 /// - PUT  /models/{model_id}/default - Set default model
 ///
@@ -72,8 +78,13 @@ pub fn v1_routes() -> Router<AppState> {
         // ========================================
         .route("/scan/start", post(scan::start_scan))
         .route("/scan/list", get(scan::list_scans))
+        .route("/scan/probes", get(scan::list_probes))
+        .route("/scan/retest", post(scan::retest_vulnerability))
         .route("/scan/{scan_id}", get(scan::get_scan_status))
+        .route("/scan/{scan_id}/cancel", post(scan::cancel_scan))
         .route("/scan/{scan_id}/results", get(scan::get_scan_results))
+        .route("/scan/{scan_id}/logs", get(scan::get_scan_logs))
+        .route("/scan/{scan_id}/events", get(scan::scan_events))
         // ========================================
         // API Key Management: Session auth
         // ========================================
@@ -93,6 +104,7 @@ pub fn v1_routes() -> Router<AppState> {
         // ========================================
         .route("/models", post(models::create_model_config))
         .route("/models", get(models::list_model_configs))
+        .route("/models/{model_id}", put(models::update_model_config))
         .route("/models/{model_id}", delete(models::delete_model_config))
         .route("/models/{model_id}/default", put(models::set_default_model))
         // ========================================

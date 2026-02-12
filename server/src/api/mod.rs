@@ -1,7 +1,7 @@
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
@@ -164,8 +164,7 @@ impl AppState {
             let state = self.circuit_breaker.get_state().await;
             return Err(format!(
                 "ML service circuit breaker is {:?}. Service temporarily unavailable. Will retry in {} seconds.",
-                state,
-                CIRCUIT_RESET_TIMEOUT_SECS
+                state, CIRCUIT_RESET_TIMEOUT_SECS
             ));
         }
 
@@ -210,22 +209,26 @@ impl AppState {
     }
 
     /// Record a successful ML operation (resets circuit breaker)
+    #[allow(dead_code)]
     pub async fn record_ml_success(&self) {
         self.circuit_breaker.record_success().await;
     }
 
     /// Record a failed ML operation (may open circuit breaker)
+    #[allow(dead_code)]
     pub async fn record_ml_failure(&self) {
         self.circuit_breaker.record_failure().await;
     }
 
     /// Invalidate the cached ML client (force reconnection on next request)
+    #[allow(dead_code)]
     pub async fn invalidate_ml_client(&self) {
         let mut cache = self.ml_client.write().await;
         *cache = None;
     }
 
     /// Get the ML sidecar URL
+    #[allow(dead_code)]
     pub fn ml_sidecar_url(&self) -> &str {
         &self.ml_sidecar_url
     }

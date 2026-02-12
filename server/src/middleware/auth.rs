@@ -45,6 +45,7 @@ pub struct GuardConfig {
 pub struct ApiKeyInfo {
     pub id: uuid::Uuid,
     pub organization_id: uuid::Uuid,
+    #[allow(dead_code)]
     pub scopes: Vec<String>,
     pub rate_limit_rpm: i32,
     /// Per-key guard protection profile. `None` means no default config —

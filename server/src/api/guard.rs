@@ -18,7 +18,7 @@ use crate::grpc::ml_client::{
     ScanOptions as GrpcScanOptions, ScannerConfigEntry as GrpcScannerConfigEntry,
     ScannerResultInfo,
 };
-use crate::middleware::auth::{ApiKeyInfo, GuardConfig, GuardScannerEntry};
+use crate::middleware::auth::{ApiKeyInfo, GuardScannerEntry};
 use crate::middleware::rate_limit::{
     MONTHLY_QUOTA_BASIC, RATE_LIMIT_WINDOW_SECONDS, check_monthly_quota,
     check_monthly_quota_remaining, check_rate_limit, increment_monthly_quota,

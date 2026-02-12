@@ -1,6 +1,7 @@
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 pub async fn log_guard_scan(
     pool: &PgPool,
     org_id: Option<Uuid>,

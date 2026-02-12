@@ -1,15 +1,16 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Json,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use sqlx::Row;
 use uuid::Uuid;
 
 use super::AppState;
-use crate::middleware::{require_session_from_headers, ErrorResponse};
+use crate::middleware::{ErrorResponse, require_session_from_headers};
 use crate::utils::encryption;
 
 // ============================================
@@ -23,8 +24,27 @@ pub struct CreateModelConfigRequest {
     pub model: String,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
+    /// Optional JSON settings (e.g. custom endpoint config for self-hosted models)
+    pub settings: Option<serde_json::Value>,
     #[serde(default)]
     pub is_default: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateModelConfigRequest {
+    pub name: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    /// Optional JSON settings (e.g. custom endpoint config for self-hosted models)
+    pub settings: Option<serde_json::Value>,
+    /// Set to true to explicitly clear the API key
+    #[serde(default)]
+    pub clear_api_key: bool,
+    /// Set to true to explicitly clear the base URL
+    #[serde(default)]
+    pub clear_base_url: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -148,8 +168,8 @@ pub async fn create_model_config(
 
     let row = sqlx::query(
         r#"
-        INSERT INTO model_config (organization_id, name, provider, model, api_key_encrypted, base_url, is_default)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO model_config (organization_id, name, provider, model, api_key_encrypted, base_url, settings, is_default)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, organization_id, name, provider, model, base_url, settings, is_default, created_at, updated_at
         "#
     )
@@ -159,6 +179,7 @@ pub async fn create_model_config(
     .bind(&req.model)
     .bind(&encrypted_api_key)
     .bind(&req.base_url)
+    .bind(&req.settings)
     .bind(req.is_default)
     .fetch_one(&state.db)
     .await
@@ -275,6 +296,160 @@ pub async fn delete_model_config(
 
     Ok(Json(DeleteResponse {
         success: result.rows_affected() > 0,
+    }))
+}
+
+/// Update an existing model configuration
+///
+/// **Auth: Session Required**
+///
+/// Allows updating name, provider, model, api_key, base_url, and settings.
+/// Only provided (non-None) fields are updated.
+pub async fn update_model_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(model_id): Path<Uuid>,
+    Json(req): Json<UpdateModelConfigRequest>,
+) -> Result<Json<ModelConfigItem>, (StatusCode, Json<ErrorResponse>)> {
+    let user = require_session_from_headers(&state.db, &headers)
+        .await
+        .map_err(|(status, json)| {
+            (
+                status,
+                Json(ErrorResponse::new(json.error.clone(), json.code.clone())),
+            )
+        })?;
+
+    let org_id = get_user_org_id(&state.db, &user.user_id).await?;
+
+    // Verify the model exists and belongs to this org
+    let existing = sqlx::query(
+        "SELECT id, name, provider, model, api_key_encrypted, base_url, settings FROM model_config WHERE id = $1 AND organization_id = $2",
+    )
+    .bind(model_id)
+    .bind(org_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to fetch model config for update: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Database error", "DB_ERROR")),
+        )
+    })?;
+
+    let existing = existing.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new(
+                "Model configuration not found",
+                "MODEL_NOT_FOUND",
+            )),
+        )
+    })?;
+
+    // Build updated values, falling back to existing values
+    let new_name = req
+        .name
+        .unwrap_or_else(|| existing.get::<String, _>("name"));
+    let new_provider = req
+        .provider
+        .unwrap_or_else(|| existing.get::<String, _>("provider"));
+    let new_model = req
+        .model
+        .unwrap_or_else(|| existing.get::<String, _>("model"));
+
+    if new_name.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(
+                "Model name cannot be empty",
+                "INVALID_NAME",
+            )),
+        ));
+    }
+
+    // Handle base_url: explicit clear, new value, or keep existing
+    let new_base_url: Option<String> = if req.clear_base_url {
+        None
+    } else if let Some(url) = req.base_url {
+        if url.is_empty() { None } else { Some(url) }
+    } else {
+        existing.get::<Option<String>, _>("base_url")
+    };
+
+    // Handle settings: new value or keep existing
+    let new_settings: Option<serde_json::Value> = if let Some(s) = req.settings {
+        Some(s)
+    } else {
+        existing.get::<Option<serde_json::Value>, _>("settings")
+    };
+
+    // Handle API key: explicit clear, new value, or keep existing
+    let new_encrypted_api_key: Option<String> = if req.clear_api_key {
+        None
+    } else if let Some(ref key) = req.api_key {
+        if key.is_empty() {
+            None
+        } else {
+            let encrypted = encryption::encrypt(key).map_err(|e| {
+                tracing::error!("Failed to encrypt model API key: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new(
+                        "Failed to encrypt API key",
+                        "ENCRYPTION_FAILED",
+                    )),
+                )
+            })?;
+            Some(encrypted)
+        }
+    } else {
+        // Keep existing encrypted key
+        existing.get::<Option<String>, _>("api_key_encrypted")
+    };
+
+    let row = sqlx::query(
+        r#"
+        UPDATE model_config
+        SET name = $1, provider = $2, model = $3, api_key_encrypted = $4,
+            base_url = $5, settings = $6, updated_at = NOW()
+        WHERE id = $7 AND organization_id = $8
+        RETURNING id, organization_id, name, provider, model, base_url, settings, is_default, created_at, updated_at
+        "#,
+    )
+    .bind(&new_name)
+    .bind(&new_provider)
+    .bind(&new_model)
+    .bind(&new_encrypted_api_key)
+    .bind(&new_base_url)
+    .bind(&new_settings)
+    .bind(model_id)
+    .bind(org_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to update model config: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Failed to update model configuration",
+                "DB_UPDATE_FAILED",
+            )),
+        )
+    })?;
+
+    Ok(Json(ModelConfigItem {
+        id: row.get("id"),
+        organization_id: row.get("organization_id"),
+        name: row.get("name"),
+        provider: row.get("provider"),
+        model: row.get("model"),
+        base_url: row.get("base_url"),
+        settings: row.get("settings"),
+        is_default: row.get("is_default"),
+        created_at: row.get::<chrono::NaiveDateTime, _>("created_at").and_utc(),
+        updated_at: row.get::<chrono::NaiveDateTime, _>("updated_at").and_utc(),
     }))
 }
 

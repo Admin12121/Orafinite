@@ -9,7 +9,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use super::AppState;
-use crate::middleware::auth::{GuardConfig, GuardScannerEntry};
+use crate::middleware::auth::GuardConfig;
 use crate::middleware::{ErrorResponse, require_session_from_headers};
 use crate::utils::{generate_api_key, hash_api_key};
 

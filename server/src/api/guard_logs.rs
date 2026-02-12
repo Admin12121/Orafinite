@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
-    Json,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use super::AppState;
-use crate::middleware::{require_session_from_headers, ErrorResponse};
+use crate::middleware::{ErrorResponse, require_session_from_headers};
 
 // ============================================
 // Request/Response Types

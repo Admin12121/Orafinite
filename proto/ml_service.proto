@@ -23,6 +23,15 @@ service MlService {
     // Cancel a running Garak scan
     rpc CancelGarakScan(GarakStatusRequest) returns (GarakResponse);
 
+    // Retest a specific vulnerability (re-run the same probe/prompt)
+    rpc RetestProbe(RetestRequest) returns (RetestResponse);
+
+    // Get detailed per-probe execution logs for a scan
+    rpc GetScanLogs(GarakStatusRequest) returns (ScanLogsResponse);
+
+    // List all available Garak probes with metadata for the probe picker UI
+    rpc ListGarakProbes(Empty) returns (GarakProbeListResponse);
+
     // Health check
     rpc HealthCheck(Empty) returns (HealthResponse);
 }
@@ -245,13 +254,46 @@ message AdvancedScanResponse {
 // Garak - Vulnerability Scanning
 // ============================================
 
+// Configuration for a custom REST API endpoint (e.g. user's FastAPI + Ollama wrapper).
+// Allows Garak to test any HTTP-based LLM API regardless of format.
+message CustomEndpointConfig {
+    // The API endpoint URL (e.g. http://localhost:8000/ai)
+    string url = 1;
+
+    // HTTP method — default POST
+    string method = 2;
+
+    // JSON request body template with {{prompt}} placeholder.
+    // Examples:
+    //   '{"prompt": "{{prompt}}"}'
+    //   '{"messages": [{"role": "user", "content": "{{prompt}}"}], "model": "llama3"}'
+    string request_template = 3;
+
+    // Dot-path to extract response text from the JSON response.
+    // Examples:
+    //   "response"                      -> json["response"]
+    //   "choices.0.message.content"     -> json["choices"][0]["message"]["content"]
+    //   "data.text"                     -> json["data"]["text"]
+    string response_path = 4;
+
+    // Optional additional HTTP headers (e.g. custom auth)
+    map<string, string> headers = 5;
+}
+
 message GarakRequest {
     string provider = 1;  // openai, huggingface, ollama, custom
     string model = 2;
     string api_key = 3;
     string base_url = 4;
-    repeated string probes = 5;  // specific probes to run, empty = all
-    string scan_type = 6;  // quick, standard, comprehensive
+    repeated string probes = 5;  // specific probe IDs to run, empty = use scan_type preset
+    string scan_type = 6;  // quick, standard, comprehensive, custom
+
+    // Custom REST endpoint config — required when provider is "custom"
+    // or when testing a user's own API wrapper
+    CustomEndpointConfig custom_endpoint = 7;
+
+    // Max prompts per probe class (0 = use default of 25)
+    int32 max_prompts_per_probe = 8;
 }
 
 message GarakResponse {
@@ -273,6 +315,8 @@ message GarakStatusResponse {
     int32 vulnerabilities_found = 6;
     repeated Vulnerability vulnerabilities = 7;
     string error_message = 8;
+    // Verbose per-probe execution logs streamed incrementally
+    repeated ProbeLog probe_logs = 9;
 }
 
 message Vulnerability {
@@ -283,4 +327,105 @@ message Vulnerability {
     string attack_prompt = 5;
     string model_response = 6;
     string recommendation = 7;
+    float success_rate = 8;         // detector confidence score (0.0-1.0)
+    string detector_name = 9;       // which detector flagged this
+    string probe_class = 10;        // full garak probe class path
+    int32 probe_duration_ms = 11;   // how long this probe took to execute
+}
+
+// Detailed per-probe execution log entry
+message ProbeLog {
+    string probe_name = 1;
+    string probe_class = 2;          // full garak class path
+    string status = 3;               // running, passed, failed, error, skipped
+    int64 started_at_ms = 4;         // epoch millis
+    int64 completed_at_ms = 5;       // epoch millis
+    int32 duration_ms = 6;
+    int32 prompts_sent = 7;          // number of attack prompts sent
+    int32 prompts_passed = 8;        // prompts model handled safely
+    int32 prompts_failed = 9;        // prompts that revealed a vulnerability
+    string detector_name = 10;
+    repeated float detector_scores = 11;  // raw scores from detector
+    string error_message = 12;
+    repeated string log_lines = 13;  // verbose log messages
+}
+
+// ============================================
+// Retest - Re-run a specific vulnerability
+// ============================================
+
+message RetestRequest {
+    string scan_id = 1;
+    string probe_name = 2;
+    string probe_class = 3;          // full garak probe class path to re-run
+    string attack_prompt = 4;        // exact prompt to replay
+    string provider = 5;
+    string model = 6;
+    string api_key = 7;
+    string base_url = 8;
+    int32 num_attempts = 9;          // how many times to repeat (default 3)
+}
+
+message RetestResult {
+    int32 attempt_number = 1;
+    bool is_vulnerable = 2;
+    string model_response = 3;
+    float detector_score = 4;
+    int32 duration_ms = 5;
+    string error_message = 6;
+}
+
+message RetestResponse {
+    string probe_name = 1;
+    string attack_prompt = 2;
+    int32 total_attempts = 3;
+    int32 vulnerable_count = 4;      // how many attempts confirmed the vuln
+    int32 safe_count = 5;
+    float confirmation_rate = 6;     // vulnerable_count / total_attempts
+    repeated RetestResult results = 7;
+    string status = 8;               // completed, error
+    string error_message = 9;
+}
+
+// ============================================
+// Scan Logs - Detailed execution logs
+// ============================================
+
+message ScanLogsResponse {
+    string scan_id = 1;
+    repeated ProbeLog logs = 2;
+    int32 total_probes = 3;
+    int32 total_prompts_sent = 4;
+    int32 total_duration_ms = 5;
+}
+
+// ============================================
+// Garak Probe Discovery - for frontend probe picker
+// ============================================
+
+// Metadata about a single probe for the UI
+message GarakProbeInfo {
+    string id = 1;                     // short name, e.g. "promptinject"
+    string name = 2;                   // display name, e.g. "Prompt Injection"
+    string description = 3;            // what this probe tests
+    string category = 4;               // category id, e.g. "injection"
+    string severity_range = 5;         // e.g. "high-critical"
+    bool default_enabled = 6;          // whether enabled in standard scan
+    repeated string tags = 7;          // searchable tags
+    repeated string class_paths = 8;   // garak class paths
+    bool available = 9;                // whether classes exist in installed garak version
+}
+
+// Metadata about a probe category for the UI
+message GarakProbeCategory {
+    string id = 1;                     // e.g. "injection"
+    string name = 2;                   // e.g. "Prompt Injection"
+    string description = 3;
+    string icon = 4;                   // icon hint for frontend
+    repeated string probe_ids = 5;     // probes in this category
+}
+
+message GarakProbeListResponse {
+    repeated GarakProbeCategory categories = 1;
+    repeated GarakProbeInfo probes = 2;
 }

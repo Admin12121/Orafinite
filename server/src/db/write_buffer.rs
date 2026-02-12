@@ -8,7 +8,6 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, interval};
 use uuid::Uuid;
@@ -131,6 +130,7 @@ impl WriteBufferHandle {
 
     /// Queue a guard log entry, waiting if the buffer is full (backpressure).
     /// Use this when you absolutely cannot drop the entry.
+    #[allow(dead_code)]
     pub async fn queue_blocking(&self, entry: GuardLogEntry) {
         if let Err(e) = self.tx.send(entry).await {
             tracing::error!("Guard log write buffer send failed: {}", e);
