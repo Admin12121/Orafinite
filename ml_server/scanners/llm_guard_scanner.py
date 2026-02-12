@@ -247,10 +247,10 @@ class LLMGuardScanner:
 
         self._default_input_scanners = {
             "prompt_injection": PromptInjection(use_onnx=self._use_onnx, threshold=0.5),
-            "toxicity": Toxicity(use_onnx=self._use_onnx, threshold=0.5),
-            "anonymize": Anonymize(vault=self._vault),
+            "toxicity": Toxicity(use_onnx=self._use_onnx, threshold=0.70),
+            "anonymize": Anonymize(vault=self._vault, threshold=0.60),
             "secrets": Secrets(),
-            "gibberish": Gibberish(use_onnx=self._use_onnx, threshold=0.5),
+            "gibberish": Gibberish(use_onnx=self._use_onnx, threshold=0.70),
             "invisible_text": InvisibleText(),
         }
 
@@ -258,9 +258,9 @@ class LLMGuardScanner:
 
         self._default_output_scanners = {
             "sensitive": Sensitive(use_onnx=self._use_onnx),
-            "toxicity": OutputToxicity(use_onnx=self._use_onnx, threshold=0.5),
+            "toxicity": OutputToxicity(use_onnx=self._use_onnx, threshold=0.70),
             "malicious_urls": MaliciousURLs(),
-            "bias": Bias(use_onnx=self._use_onnx, threshold=0.5),
+            "bias": Bias(use_onnx=self._use_onnx, threshold=0.70),
             "deanonymize": Deanonymize(vault=self._vault),
         }
 
@@ -294,7 +294,10 @@ class LLMGuardScanner:
                     kwargs["hidden_names"] = settings["hidden_names"]
                 if "allowed_names" in settings:
                     kwargs["allowed_names"] = settings["allowed_names"]
-                return Anonymize(vault=self._vault, threshold=threshold, **kwargs)
+                # PII scanner: enforce minimum threshold of 0.60 to reduce
+                # false positives on benign text that mentions names/places.
+                pii_threshold = max(threshold, 0.60)
+                return Anonymize(vault=self._vault, threshold=pii_threshold, **kwargs)
 
             elif name == "ban_code":
                 kwargs = {}
@@ -356,7 +359,10 @@ class LLMGuardScanner:
                 return Code(**kwargs)
 
             elif name == "gibberish":
-                kwargs = {"use_onnx": self._use_onnx, "threshold": threshold}
+                # Gibberish scanner: enforce minimum threshold of 0.70 to
+                # avoid flagging informal but legitimate prompts.
+                gib_threshold = max(threshold, 0.70)
+                kwargs = {"use_onnx": self._use_onnx, "threshold": gib_threshold}
                 if "match_type" in settings:
                     kwargs["match_type"] = settings["match_type"]
                 return Gibberish(**kwargs)
@@ -400,7 +406,23 @@ class LLMGuardScanner:
                 return Secrets(**kwargs)
 
             elif name == "sentiment":
-                kwargs = {"threshold": threshold}
+                # The Sentiment scanner flags text whose compound sentiment
+                # score falls BELOW the threshold.  A threshold of 0.5 means
+                # only very positive text passes — causing massive false
+                # positives on neutral/factual prompts.
+                # Clamp to at most -0.50 so only strongly negative text is
+                # flagged. Callers can still pass a more-negative value.
+                if threshold > 0:
+                    # Caller likely used the generic 0-1 scale; translate to
+                    # the sentiment scale (which is -1 … +1).
+                    sentiment_threshold = -0.50
+                    logger.info(
+                        f"Sentiment scanner: overriding threshold {threshold:.2f} → "
+                        f"{sentiment_threshold} (generic 0-1 scale not applicable)"
+                    )
+                else:
+                    sentiment_threshold = threshold
+                kwargs = {"threshold": sentiment_threshold}
                 return Sentiment(**kwargs)
 
             elif name == "token_limit":
@@ -412,7 +434,10 @@ class LLMGuardScanner:
                 return TokenLimit(**kwargs)
 
             elif name == "toxicity":
-                kwargs = {"use_onnx": self._use_onnx, "threshold": threshold}
+                # Toxicity scanner: enforce minimum threshold of 0.70 to
+                # reduce false positives on edgy-but-benign content.
+                tox_threshold = max(threshold, 0.70)
+                kwargs = {"use_onnx": self._use_onnx, "threshold": tox_threshold}
                 if "match_type" in settings:
                     kwargs["match_type"] = settings["match_type"]
                 return Toxicity(**kwargs)
@@ -580,11 +605,21 @@ class LLMGuardScanner:
                 return Sensitive(**kwargs)
 
             elif name == "sentiment":
-                kwargs = {"threshold": threshold}
+                # Same guard as input sentiment — see _build_input_scanner.
+                if threshold > 0:
+                    sentiment_threshold = -0.50
+                    logger.info(
+                        f"Output Sentiment scanner: overriding threshold "
+                        f"{threshold:.2f} → {sentiment_threshold}"
+                    )
+                else:
+                    sentiment_threshold = threshold
+                kwargs = {"threshold": sentiment_threshold}
                 return OutputSentiment(**kwargs)
 
             elif name == "toxicity":
-                kwargs = {"use_onnx": self._use_onnx, "threshold": threshold}
+                tox_threshold = max(threshold, 0.70)
+                kwargs = {"use_onnx": self._use_onnx, "threshold": tox_threshold}
                 if "match_type" in settings:
                     kwargs["match_type"] = settings["match_type"]
                 return OutputToxicity(**kwargs)
@@ -668,15 +703,17 @@ class LLMGuardScanner:
         for scanner_name, is_valid in results_valid.items():
             score = results_score.get(scanner_name, 0.0)
             if not is_valid:
+                # Risk = 1 - score (low scanner score → high risk)
+                risk_contribution = round(1.0 - score, 4)
                 threats.append(
                     {
                         "type": scanner_name,
-                        "confidence": score,
+                        "confidence": risk_contribution,
                         "description": f"Detected potential {scanner_name} issue",
-                        "severity": self._get_severity(score),
+                        "severity": self._get_severity(risk_contribution),
                     }
                 )
-                risk_score = max(risk_score, score)
+                risk_score = max(risk_score, risk_contribution)
 
         is_safe = len(threats) == 0
 
@@ -718,11 +755,12 @@ class LLMGuardScanner:
         for scanner_name, valid in results_valid.items():
             if not valid:
                 score = results_score.get(scanner_name, 0.0)
+                risk_contribution = round(1.0 - score, 4)
                 issues.append(
                     {
                         "type": scanner_name,
                         "description": f"Detected potential {scanner_name} issue in output",
-                        "severity": self._get_severity(1.0 - score),
+                        "severity": self._get_severity(risk_contribution),
                     }
                 )
 
@@ -886,6 +924,9 @@ class LLMGuardScanner:
 
         for scanner_name, is_valid in results_valid.items():
             score = results_score.get(scanner_name, 0.0)
+            # In LLM Guard, a LOW score means the scanner considers the
+            # text unsafe, so the *risk* is `1 - score`.
+            risk_contribution = round(1.0 - score, 4) if not is_valid else 0.0
             scanner_result = {
                 "scanner_name": scanner_name,
                 "is_valid": is_valid,
@@ -900,8 +941,8 @@ class LLMGuardScanner:
                 scanner_result["description"] = (
                     f"Detected potential {scanner_name} issue"
                 )
-                scanner_result["severity"] = self._get_severity(score)
-                risk_score = max(risk_score, score)
+                scanner_result["severity"] = self._get_severity(risk_contribution)
+                risk_score = max(risk_score, risk_contribution)
 
             scanner_results.append(scanner_result)
 
@@ -971,6 +1012,8 @@ class LLMGuardScanner:
 
         for scanner_name, is_valid in results_valid.items():
             score = results_score.get(scanner_name, 0.0)
+            # Risk = 1 - score (low scanner score → high risk)
+            risk_contribution = round(1.0 - score, 4) if not is_valid else 0.0
             scanner_result = {
                 "scanner_name": scanner_name,
                 "is_valid": is_valid,
@@ -985,8 +1028,8 @@ class LLMGuardScanner:
                 scanner_result["description"] = (
                     f"Detected potential {scanner_name} issue in output"
                 )
-                scanner_result["severity"] = self._get_severity(1.0 - score)
-                risk_score = max(risk_score, score)
+                scanner_result["severity"] = self._get_severity(risk_contribution)
+                risk_score = max(risk_score, risk_contribution)
 
             scanner_results.append(scanner_result)
 

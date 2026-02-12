@@ -83,12 +83,21 @@ const CATEGORY_COLORS: Record<string, string> = {
 // Helpers
 // ============================================
 
+/** Per-scanner default thresholds tuned to reduce false positives. */
+const INPUT_SCANNER_THRESHOLDS: Partial<Record<InputScannerName, number>> = {
+  prompt_injection: 0.5,
+  toxicity: 0.7,
+  anonymize: 0.6,
+  gibberish: 0.7,
+  sentiment: -0.5,
+};
+
 function buildDefaultInputScanners(): Record<string, ScannerEntry> {
   const entries: Record<string, ScannerEntry> = {};
   for (const name of ALL_INPUT_SCANNERS) {
     entries[name] = {
       enabled: DEFAULT_INPUT_SCANNERS.includes(name),
-      threshold: 0.5,
+      threshold: INPUT_SCANNER_THRESHOLDS[name] ?? 0.5,
       settingsJson: "",
       expanded: false,
     };
@@ -96,12 +105,20 @@ function buildDefaultInputScanners(): Record<string, ScannerEntry> {
   return entries;
 }
 
+/** Per-scanner default thresholds for output scanners. */
+const OUTPUT_SCANNER_THRESHOLDS: Partial<Record<OutputScannerName, number>> = {
+  toxicity: 0.7,
+  bias: 0.7,
+  gibberish: 0.7,
+  sentiment: -0.5,
+};
+
 function buildDefaultOutputScanners(): Record<string, ScannerEntry> {
   const entries: Record<string, ScannerEntry> = {};
   for (const name of ALL_OUTPUT_SCANNERS) {
     entries[name] = {
       enabled: DEFAULT_OUTPUT_SCANNERS.includes(name),
-      threshold: 0.5,
+      threshold: OUTPUT_SCANNER_THRESHOLDS[name] ?? 0.5,
       settingsJson: "",
       expanded: false,
     };
@@ -158,8 +175,8 @@ function ScannerCard({
     <div
       className={`border rounded-xl transition-all duration-200 ${
         entry.enabled
-          ? "border-zinc-700 bg-zinc-900"
-          : "border-zinc-800/60 bg-zinc-900/40 opacity-60"
+          ? "border-stone-300 bg-stone-50"
+          : "border-stone-200/60 bg-stone-50/40 opacity-60"
       }`}
     >
       {/* Header row */}
@@ -168,7 +185,7 @@ function ScannerCard({
         <button
           onClick={onToggle}
           className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-            entry.enabled ? "bg-lime-600" : "bg-zinc-700"
+            entry.enabled ? "bg-lime-600" : "bg-stone-200"
           }`}
           aria-label={`Toggle ${meta.label}`}
         >
@@ -182,7 +199,7 @@ function ScannerCard({
         {/* Name + category */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-stone-200 truncate">
+            <span className="text-sm font-semibold text-stone-800 truncate">
               {meta.label}
             </span>
             <span
@@ -199,7 +216,7 @@ function ScannerCard({
         {/* Expand button */}
         <button
           onClick={onToggleExpand}
-          className="text-stone-500 hover:text-stone-300 transition-colors p-1"
+          className="text-stone-500 hover:text-stone-700 transition-colors p-1"
           aria-label="Expand settings"
         >
           {entry.expanded ? (
@@ -212,7 +229,7 @@ function ScannerCard({
 
       {/* Expanded settings */}
       {entry.expanded && (
-        <div className="border-t border-zinc-800 px-4 py-3 space-y-3">
+        <div className="border-t border-stone-200 px-4 py-3 space-y-3">
           {/* Threshold */}
           <div className="flex items-center gap-3">
             <label className="text-xs text-stone-500 font-mono uppercase w-20">
@@ -239,7 +256,7 @@ function ScannerCard({
                 Settings (JSON)
               </label>
               <textarea
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs font-mono text-stone-300 min-h-[60px] focus:outline-none focus:border-zinc-600 resize-y"
+                className="w-full bg-stone-100 border border-stone-300 rounded-lg px-3 py-2 text-xs font-mono text-stone-700 min-h-[60px] focus:outline-none focus:border-stone-300 resize-y"
                 placeholder={meta.settingsHint || "{}"}
                 value={entry.settingsJson}
                 onChange={(e) => onSettingsChange(e.target.value)}
@@ -272,7 +289,7 @@ function ScannerResultCard({ result }: { result: AdvancedScannerResultItem }) {
     <div
       className={`p-3 rounded-lg border ${
         result.isValid
-          ? "border-zinc-800 bg-zinc-900/50"
+          ? "border-stone-200 bg-stone-50"
           : getSeverityColor(result.severity)
       }`}
     >
@@ -507,20 +524,20 @@ export default function GuardPage() {
       {/* Page Header */}
       <div>
         <h1 className="text-xl font-bold">LLM Guard</h1>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-stone-500">
           Configure and test all LLM Guard scanners with full customization —
           prompt scanners, output scanners, or both
         </p>
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-stone-50 border border-stone-200 rounded-xl p-1 w-fit">
         <button
           onClick={() => setActiveTab("config")}
           className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
             activeTab === "config"
-              ? "bg-zinc-700 text-white"
-              : "text-stone-500 hover:text-stone-300"
+              ? "bg-stone-200 text-stone-800"
+              : "text-stone-500 hover:text-stone-700"
           }`}
         >
           <IconSettings className="w-4 h-4 inline mr-1.5 -mt-0.5" />
@@ -530,8 +547,8 @@ export default function GuardPage() {
           onClick={() => setActiveTab("test")}
           className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
             activeTab === "test"
-              ? "bg-zinc-700 text-white"
-              : "text-stone-500 hover:text-stone-300"
+              ? "bg-stone-200 text-stone-800"
+              : "text-stone-500 hover:text-stone-700"
           }`}
         >
           <IconShieldBolt className="w-4 h-4 inline mr-1.5 -mt-0.5" />
@@ -542,7 +559,7 @@ export default function GuardPage() {
       {/* ============================================ */}
       {/* Top controls: API Key + Scan Mode + Options  */}
       {/* ============================================ */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="bg-stone-50 border border-stone-200 rounded-2xl p-5 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* API Key */}
           <div className="space-y-1.5">
@@ -604,7 +621,7 @@ export default function GuardPage() {
                   className={`flex-1 px-3 py-2 text-xs font-mono uppercase rounded-lg border transition-colors ${
                     scanMode === mode
                       ? "bg-brand-500/20 border-brand-500 text-brand-400"
-                      : "border-zinc-700 text-stone-500 hover:text-stone-300"
+                      : "border-stone-300 text-stone-500 hover:text-stone-700"
                   }`}
                 >
                   <span className="mr-1">{icon}</span>
@@ -632,7 +649,7 @@ export default function GuardPage() {
                   type="checkbox"
                   checked={sanitize}
                   onChange={(e) => setSanitize(e.target.checked)}
-                  className="rounded border-zinc-600 accent-lime-500"
+                  className="rounded border-stone-300 accent-lime-500"
                 />
                 <span className="text-xs text-stone-400">
                   Return sanitized text
@@ -643,7 +660,7 @@ export default function GuardPage() {
                   type="checkbox"
                   checked={failFast}
                   onChange={(e) => setFailFast(e.target.checked)}
-                  className="rounded border-zinc-600 accent-lime-500"
+                  className="rounded border-stone-300 accent-lime-500"
                 />
                 <span className="text-xs text-stone-400">
                   Fail fast (stop after first failure)
@@ -660,7 +677,7 @@ export default function GuardPage() {
         </div>
 
         {/* Summary bar */}
-        <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+        <div className="flex items-center justify-between pt-2 border-t border-stone-200">
           <div className="flex items-center gap-4">
             {showInputScanners && (
               <span className="text-xs font-mono text-stone-500">
@@ -713,7 +730,7 @@ export default function GuardPage() {
                   <span className="text-stone-400 font-semibold text-xs uppercase font-mono tracking-wider">
                     Input (Prompt) Scanners
                   </span>
-                  <span className="text-[10px] font-mono bg-zinc-800 text-stone-500 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded">
                     {enabledInputCount}/{ALL_INPUT_SCANNERS.length}
                   </span>
                 </div>
@@ -741,7 +758,7 @@ export default function GuardPage() {
                   placeholder="Filter scanners..."
                   value={inputFilter}
                   onChange={(e) => setInputFilter(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-2 text-xs text-stone-400 placeholder-stone-600 focus:outline-none focus:border-zinc-700"
+                  className="w-full bg-stone-50 border border-stone-200 rounded-lg pl-8 pr-3 py-2 text-xs text-stone-400 placeholder-stone-600 focus:outline-none focus:border-stone-300"
                 />
               </div>
 
@@ -788,7 +805,7 @@ export default function GuardPage() {
                   <span className="text-stone-400 font-semibold text-xs uppercase font-mono tracking-wider">
                     Output Scanners
                   </span>
-                  <span className="text-[10px] font-mono bg-zinc-800 text-stone-500 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded">
                     {enabledOutputCount}/{ALL_OUTPUT_SCANNERS.length}
                   </span>
                 </div>
@@ -816,7 +833,7 @@ export default function GuardPage() {
                   placeholder="Filter scanners..."
                   value={outputFilter}
                   onChange={(e) => setOutputFilter(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-2 text-xs text-stone-400 placeholder-stone-600 focus:outline-none focus:border-zinc-700"
+                  className="w-full bg-stone-50 border border-stone-200 rounded-lg pl-8 pr-3 py-2 text-xs text-stone-400 placeholder-stone-600 focus:outline-none focus:border-stone-300"
                 />
               </div>
 
@@ -881,7 +898,7 @@ export default function GuardPage() {
               <span className="flex-1 h-px bg-stone-200/10"></span>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <div className="bg-stone-50 border border-stone-200 rounded-2xl p-5 space-y-4">
               {/* Prompt */}
               {(scanMode === "prompt_only" || scanMode === "both") && (
                 <div className="space-y-1.5">
@@ -915,7 +932,7 @@ export default function GuardPage() {
               )}
 
               {/* Active scanner summary */}
-              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-800">
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-stone-200">
                 {showInputScanners && (
                   <span className="text-[10px] font-mono text-stone-600">
                     Input:{" "}
@@ -929,7 +946,7 @@ export default function GuardPage() {
                   </span>
                 )}
                 {showOutputScanners && showInputScanners && (
-                  <span className="text-[10px] text-zinc-700">|</span>
+                  <span className="text-[10px] text-stone-400">|</span>
                 )}
                 {showOutputScanners && (
                   <span className="text-[10px] font-mono text-stone-600">
@@ -977,7 +994,7 @@ export default function GuardPage() {
               <span className="flex-1 h-px bg-stone-200/10"></span>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 min-h-[400px]">
+            <div className="bg-stone-50 border border-stone-200 rounded-2xl p-5 min-h-[400px]">
               {/* Error */}
               {scanError && (
                 <div className="p-4 bg-red-900/20 border border-red-700 rounded-lg text-red-400 mb-4">
@@ -1021,14 +1038,14 @@ export default function GuardPage() {
                       </span>
                     </div>
 
-                    <span className="text-xs font-mono text-stone-500 uppercase px-2 py-1 bg-zinc-800 rounded">
+                    <span className="text-xs font-mono text-stone-500 uppercase px-2 py-1 bg-stone-100 rounded">
                       {scanResult.scanMode.replace("_", " ")}
                     </span>
                   </div>
 
                   {/* Stats */}
                   <div className="grid grid-cols-4 gap-3">
-                    <div className="p-3 bg-zinc-800 rounded-lg">
+                    <div className="p-3 bg-stone-100 rounded-lg">
                       <p className="text-[10px] text-stone-500 uppercase font-mono">
                         Risk
                       </p>
@@ -1044,7 +1061,7 @@ export default function GuardPage() {
                         {(scanResult.riskScore * 100).toFixed(0)}%
                       </p>
                     </div>
-                    <div className="p-3 bg-zinc-800 rounded-lg">
+                    <div className="p-3 bg-stone-100 rounded-lg">
                       <p className="text-[10px] text-stone-500 uppercase font-mono">
                         Latency
                       </p>
@@ -1052,7 +1069,7 @@ export default function GuardPage() {
                         {scanResult.latencyMs}ms
                       </p>
                     </div>
-                    <div className="p-3 bg-zinc-800 rounded-lg">
+                    <div className="p-3 bg-stone-100 rounded-lg">
                       <p className="text-[10px] text-stone-500 uppercase font-mono">
                         Input Scans
                       </p>
@@ -1060,7 +1077,7 @@ export default function GuardPage() {
                         {scanResult.inputScannersRun}
                       </p>
                     </div>
-                    <div className="p-3 bg-zinc-800 rounded-lg">
+                    <div className="p-3 bg-stone-100 rounded-lg">
                       <p className="text-[10px] text-stone-500 uppercase font-mono">
                         Output Scans
                       </p>
@@ -1136,7 +1153,7 @@ export default function GuardPage() {
                       <p className="text-xs font-mono uppercase text-stone-500 font-semibold">
                         Sanitized Prompt
                       </p>
-                      <pre className="p-3 bg-zinc-800 rounded-lg text-xs font-mono whitespace-pre-wrap text-lime-300/80 max-h-48 overflow-y-auto">
+                      <pre className="p-3 bg-stone-100 rounded-lg text-xs font-mono whitespace-pre-wrap text-lime-300/80 max-h-48 overflow-y-auto">
                         {scanResult.sanitizedPrompt}
                       </pre>
                     </div>
@@ -1147,7 +1164,7 @@ export default function GuardPage() {
                       <p className="text-xs font-mono uppercase text-stone-500 font-semibold">
                         Sanitized Output
                       </p>
-                      <pre className="p-3 bg-zinc-800 rounded-lg text-xs font-mono whitespace-pre-wrap text-cyan-300/80 max-h-48 overflow-y-auto">
+                      <pre className="p-3 bg-stone-100 rounded-lg text-xs font-mono whitespace-pre-wrap text-cyan-300/80 max-h-48 overflow-y-auto">
                         {scanResult.sanitizedOutput}
                       </pre>
                     </div>

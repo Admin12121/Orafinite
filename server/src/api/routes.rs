@@ -115,4 +115,8 @@ pub fn v1_routes() -> Router<AppState> {
             post(organization::get_or_create_organization),
         )
         .route("/organization", get(organization::get_current_organization))
+        .route(
+            "/organization/usage",
+            get(organization::get_organization_usage),
+        )
 }

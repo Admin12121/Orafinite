@@ -336,7 +336,7 @@ export default function ModelsPage() {
     <section className="px-4 py-6 w-full flex flex-col gap-10">
       <div>
         <h1 className="text-xl font-bold">Model Registry</h1>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-stone-500">
           Configure LLM models for vulnerability scanning with Garak
         </p>
       </div>
@@ -362,7 +362,7 @@ export default function ModelsPage() {
 
         {/* Create Form */}
         {showCreate && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
             <div className="grid grid-cols-2 gap-4">
               {/* Configuration Name */}
               <div className="space-y-2">
@@ -489,7 +489,7 @@ export default function ModelsPage() {
 
               {/* Custom Endpoint Configuration */}
               {isCustomProvider && (
-                <div className="col-span-2 space-y-4 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+                <div className="col-span-2 space-y-4 p-4 bg-stone-100 border border-stone-300 rounded-xl">
                   <p className="text-xs font-semibold uppercase text-stone-400 tracking-wide">
                     Custom Endpoint Configuration
                   </p>
@@ -586,7 +586,7 @@ export default function ModelsPage() {
         )}
 
         {/* Models List */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden">
           {models.length === 0 ? (
             <div className="p-8 text-center text-stone-500">
               <IconCpu className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -596,7 +596,7 @@ export default function ModelsPage() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-zinc-800">
+            <div className="divide-y divide-stone-200">
               {models.map((model) => (
                 <div
                   key={model.id}
@@ -626,7 +626,7 @@ export default function ModelsPage() {
                         )}
                       </div>
                       <div className="text-sm text-stone-500 flex items-center gap-2">
-                        <span className="px-2 py-0.5 bg-zinc-800 rounded text-xs">
+                        <span className="px-2 py-0.5 bg-stone-100 rounded text-xs">
                           {getProviderLabel(model.provider)}
                         </span>
                         <span className="font-mono">{model.model}</span>
@@ -647,7 +647,7 @@ export default function ModelsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-stone-400 hover:text-stone-200"
+                      className="text-stone-400 hover:text-stone-800"
                       onClick={() => openEditForm(model)}
                       title="Edit model"
                     >
@@ -694,7 +694,7 @@ export default function ModelsPage() {
         {/* Edit Model Dialog */}
         {editingModel && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-stone-50 border border-stone-300 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <h2 className="text-lg font-semibold mb-4">
                 Edit Model: {editingModel.name}
               </h2>
@@ -810,7 +810,7 @@ export default function ModelsPage() {
 
                 {/* Custom Endpoint Configuration */}
                 {isEditCustomProvider && (
-                  <div className="col-span-2 space-y-4 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+                  <div className="col-span-2 space-y-4 p-4 bg-stone-100 border border-stone-300 rounded-xl">
                     <p className="text-xs font-semibold uppercase text-stone-400 tracking-wide">
                       Custom Endpoint Configuration
                     </p>
@@ -890,7 +890,7 @@ export default function ModelsPage() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2 pt-4 mt-4 border-t border-zinc-800">
+              <div className="flex gap-2 pt-4 mt-4 border-t border-stone-200">
                 <Button
                   onClick={handleUpdate}
                   disabled={
@@ -923,15 +923,15 @@ export default function ModelsPage() {
         )}
 
         {/* Provider Reference */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
           <h3 className="font-semibold mb-4 flex items-center gap-2">
             <IconInfoCircle className="w-4 h-4" />
             Supported Providers & Model Formats
           </h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             {PROVIDERS.map((provider) => (
-              <div key={provider.value} className="p-3 bg-zinc-800 rounded-lg">
-                <p className="font-medium text-stone-200">{provider.label}</p>
+              <div key={provider.value} className="p-3 bg-stone-100 rounded-lg">
+                <p className="font-medium text-stone-800">{provider.label}</p>
                 <p className="text-xs text-stone-500 mt-1">
                   {provider.examples}
                 </p>

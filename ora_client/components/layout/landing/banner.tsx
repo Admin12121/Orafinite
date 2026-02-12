@@ -27,13 +27,13 @@ const Banner = () => {
         hover:bg-indigo-600
 
         dark:text-stone-900
-        dark:bg-indigo-500
+        bg-indigo-500
 
         dark:disabled:bg-indigo-400
         dark:hover:disabled:bg-indigo-400
       "
         translate="no"
-        href="/signup"
+        href="/login"
       >
         Get Started
       </a>

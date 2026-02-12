@@ -634,6 +634,27 @@ export interface OrganizationResponse {
   updated_at: string;
 }
 
+export interface OrganizationUsageResponse {
+  organization_id: string;
+  plan: string | null;
+  /** Total LLM Guard scans in the current billing period */
+  guard_scans_used: number;
+  /** Total Garak vulnerability scans in the current billing period */
+  garak_scans_used: number;
+  /** Number of active (non-revoked) API keys */
+  api_keys_used: number;
+  /** Number of model configurations */
+  model_configs_used: number;
+  /** Total threats blocked in the current billing period */
+  threats_blocked: number;
+  /** Average guard scan latency in ms */
+  avg_latency_ms: number;
+  /** Billing period start (ISO 8601) */
+  billing_period_start: string;
+  /** Billing period end (ISO 8601) */
+  billing_period_end: string;
+}
+
 // ============================================================
 // Typed API methods
 // ============================================================
@@ -753,4 +774,5 @@ export const modelsApi = {
 export const organizationApi = {
   getOrCreate: () => api.post<OrganizationResponse>("/v1/organization"),
   getCurrent: () => api.get<OrganizationResponse | null>("/v1/organization"),
+  getUsage: () => api.get<OrganizationUsageResponse>("/v1/organization/usage"),
 };

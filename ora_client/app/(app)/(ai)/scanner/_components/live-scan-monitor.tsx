@@ -374,9 +374,9 @@ export default function LiveScanMonitor({
   );
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+    <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-zinc-800">
+      <div className="p-4 border-b border-stone-200">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             {isActive ? (
@@ -409,7 +409,7 @@ export default function LiveScanMonitor({
 
         {/* Progress Bar */}
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all duration-500 ease-out rounded-full ${
                 progress.status === "completed"
@@ -482,13 +482,13 @@ export default function LiveScanMonitor({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-800">
+      <div className="flex border-b border-stone-200">
         <button
           onClick={() => setActiveTab("feed")}
           className={`px-4 py-2 text-xs font-mono uppercase tracking-wider transition-colors ${
             activeTab === "feed"
-              ? "text-white border-b-2 border-blue-500 bg-zinc-800/50"
-              : "text-stone-500 hover:text-stone-300"
+              ? "text-white border-b-2 border-blue-500 bg-stone-100"
+              : "text-stone-500 hover:text-stone-700"
           }`}
         >
           <div className="flex items-center gap-1.5">
@@ -505,15 +505,15 @@ export default function LiveScanMonitor({
           onClick={() => setActiveTab("timeline")}
           className={`px-4 py-2 text-xs font-mono uppercase tracking-wider transition-colors ${
             activeTab === "timeline"
-              ? "text-white border-b-2 border-blue-500 bg-zinc-800/50"
-              : "text-stone-500 hover:text-stone-300"
+              ? "text-white border-b-2 border-blue-500 bg-stone-100"
+              : "text-stone-500 hover:text-stone-700"
           }`}
         >
           <div className="flex items-center gap-1.5">
             <IconActivity className="w-3.5 h-3.5" />
             Probe Timeline
             {probeLogs.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-zinc-700 text-stone-300">
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-stone-200 text-stone-700">
                 {probeLogs.length}
               </span>
             )}
@@ -523,8 +523,8 @@ export default function LiveScanMonitor({
           onClick={() => setActiveTab("logs")}
           className={`px-4 py-2 text-xs font-mono uppercase tracking-wider transition-colors ${
             activeTab === "logs"
-              ? "text-white border-b-2 border-blue-500 bg-zinc-800/50"
-              : "text-stone-500 hover:text-stone-300"
+              ? "text-white border-b-2 border-blue-500 bg-stone-100"
+              : "text-stone-500 hover:text-stone-700"
           }`}
         >
           <div className="flex items-center gap-1.5">
@@ -538,7 +538,7 @@ export default function LiveScanMonitor({
       <div className="max-h-[400px] overflow-auto">
         {/* ── Vulnerability Feed ── */}
         {activeTab === "feed" && (
-          <div className="divide-y divide-zinc-800/50">
+          <div className="divide-y divide-stone-200/50">
             {vulnerabilities.length === 0 ? (
               <div className="p-8 text-center text-stone-500">
                 {isActive ? (
@@ -565,7 +565,7 @@ export default function LiveScanMonitor({
                 {vulnerabilities.map((vuln, index) => (
                   <div
                     key={vuln.id || index}
-                    className="p-3 hover:bg-zinc-800/30 transition-colors animate-in fade-in slide-in-from-bottom-2 duration-300"
+                    className="p-3 hover:bg-stone-100 transition-colors animate-in fade-in slide-in-from-bottom-2 duration-300"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <div className="flex items-start gap-3">
@@ -614,7 +614,7 @@ export default function LiveScanMonitor({
 
         {/* ── Probe Timeline ── */}
         {activeTab === "timeline" && (
-          <div className="divide-y divide-zinc-800/50">
+          <div className="divide-y divide-stone-200/50">
             {probeLogs.length === 0 ? (
               <div className="p-8 text-center text-stone-500">
                 {isActive ? (
@@ -630,7 +630,7 @@ export default function LiveScanMonitor({
               probeLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="p-3 hover:bg-zinc-800/30 transition-colors"
+                  className="p-3 hover:bg-stone-100 transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <div>{getProbeStatusIcon(log.status)}</div>
@@ -679,7 +679,7 @@ export default function LiveScanMonitor({
                     {/* Probe mini progress bar */}
                     <div className="flex flex-col items-end gap-1 min-w-[60px]">
                       {log.promptsSent > 0 && (
-                        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full ${
                               log.promptsFailed > 0
@@ -713,7 +713,7 @@ export default function LiveScanMonitor({
 
         {/* ── Verbose Logs ── */}
         {activeTab === "logs" && (
-          <div className="divide-y divide-zinc-800/50">
+          <div className="divide-y divide-stone-200/50">
             {probeLogs.length === 0 ? (
               <div className="p-8 text-center text-stone-500">
                 <IconTerminal2 className="w-10 h-10 mx-auto mb-3 opacity-50" />
@@ -726,7 +726,7 @@ export default function LiveScanMonitor({
                     onClick={() =>
                       setExpandedLog(expandedLog === log.id ? null : log.id)
                     }
-                    className="w-full p-3 hover:bg-zinc-800/30 transition-colors text-left"
+                    className="w-full p-3 hover:bg-stone-100 transition-colors text-left"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -746,7 +746,7 @@ export default function LiveScanMonitor({
                     </div>
                   </button>
                   {expandedLog === log.id && (
-                    <div className="bg-zinc-950 border-t border-zinc-800 px-4 py-3">
+                    <div className="bg-stone-50 border-t border-stone-200 px-4 py-3">
                       <div className="font-mono text-[11px] leading-5 space-y-0.5 max-h-[250px] overflow-auto">
                         {log.logLines.length > 0 ? (
                           log.logLines.map((line, i) => {

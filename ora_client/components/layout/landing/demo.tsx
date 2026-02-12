@@ -11,7 +11,7 @@ const Demo = () => {
       </div>
       <ul className="grid lg:grid-cols-3 border-y  grid-cols-1 divide-dashed divide-y lg:divide-y-0 lg:divide-x  border-dashed">
         <li className="flex flex-col gap-4 px-4 lg:px-6 py-6 bg-stone-0">
-          <p className="text-lime-600 font-normal text-xl leading-6">47ms</p>
+          <p className="text-lime-600 font-normal text-xl leading-6">50-70ms</p>
           <div className="flex flex-col gap-1">
             <p className="text-stone-800 font-semibold text-xs font-mono leading-4 uppercase">
               RESPONSE TIME

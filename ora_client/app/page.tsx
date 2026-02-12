@@ -10,6 +10,7 @@ import Header from "@/components/layout/landing/header";
 import Hero from "@/components/layout/landing/hero";
 import OurSponser from "@/components/layout/landing/our-sponser";
 import Why from "@/components/layout/landing/why";
+import Pricing from "@/components/layout/landing/pricing";
 
 export default function Page() {
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +52,7 @@ export default function Page() {
         <Demo />
         <Why />
         <OurSponser />
+        <Pricing />
         <Banner />
         <Footer />
       </motion.div>

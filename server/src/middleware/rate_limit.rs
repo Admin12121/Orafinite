@@ -54,7 +54,13 @@ pub const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;
 #[allow(dead_code)]
 pub const DEFAULT_RATE_LIMIT_RPM: u32 = 1_000;
 
-/// Monthly quota: 100,000 requests per API key (Basic plan)
+/// Monthly quota: 5,000 requests (Free Trial — 15-day guard only)
+pub const MONTHLY_QUOTA_FREE_TRIAL: u32 = 5_000;
+
+/// Monthly quota: 50,000 requests per API key (Starter plan)
+pub const MONTHLY_QUOTA_STARTER: u32 = 50_000;
+
+/// Monthly quota: 100,000 requests per API key (Basic/legacy plan)
 /// Production-ready default — supports ~2.3 req/s sustained over 30 days
 pub const MONTHLY_QUOTA_BASIC: u32 = 100_000;
 
@@ -64,12 +70,18 @@ pub const MONTHLY_QUOTA_PRO: u32 = 1_000_000;
 /// Monthly quota for Enterprise plan (effectively unlimited)
 pub const MONTHLY_QUOTA_ENTERPRISE: u32 = 10_000_000;
 
-/// Look up the monthly quota for a given plan name
+/// Look up the monthly quota for a given plan name.
+///
+/// Recognises all plan IDs used by the frontend (free_trial, starter,
+/// pro, enterprise) as well as the legacy "basic" alias.
 pub fn monthly_quota_for_plan(plan: &str) -> u32 {
     match plan {
+        "free_trial" | "free" => MONTHLY_QUOTA_FREE_TRIAL,
+        "starter" => MONTHLY_QUOTA_STARTER,
         "pro" => MONTHLY_QUOTA_PRO,
         "enterprise" => MONTHLY_QUOTA_ENTERPRISE,
-        _ => MONTHLY_QUOTA_BASIC, // "basic" or any unknown plan
+        // "basic" or any unrecognised plan falls back to BASIC quota
+        _ => MONTHLY_QUOTA_BASIC,
     }
 }
 

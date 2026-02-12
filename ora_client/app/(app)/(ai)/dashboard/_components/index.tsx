@@ -133,7 +133,7 @@ const Analytics = () => {
         <span className="flex-1 h-px bg-stone-200"></span>
       </div>
       <div
-        className={`flex bg-zinc-900 flex-col border border-zinc-800 rounded-2xl bg-stone-0 transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}
+        className={`flex bg-stone-50 flex-col border border-stone-200 rounded-2xl transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}
       >
         <div className="flex justify-between py-4 px-6 items-center">
           <div className="flex items-center gap-3 flex-1">
@@ -142,7 +142,7 @@ const Analytics = () => {
             </p>
             {/* Real-time connection indicator */}
             <div
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-800"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-stone-200"
               title={
                 sseConnected
                   ? "Real-time updates active"
@@ -170,9 +170,9 @@ const Analytics = () => {
             </SelectContent>
           </Select>
         </div>
-        <div className="border-y border-zinc-800 overflow-hidden shrink-0">
+        <div className="border-y border-stone-200 overflow-hidden shrink-0">
           <div className="grid grid-cols-4">
-            <div className="border-zinc-800 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
+            <div className="border-stone-200 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
               <div className="p-4 flex gap-4 items-center flex-1 justify-between h-full relative  ">
                 <div className="flex flex-col gap-1 w-full">
                   <div className="flex  gap-0 justify-between items-center w-full">
@@ -212,7 +212,7 @@ const Analytics = () => {
                 </div>
               </div>
             </div>
-            <div className="border-zinc-800 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
+            <div className="border-stone-200 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
               <div className="p-4 flex gap-4 items-center flex-1 justify-between h-full relative  ">
                 <div className="flex flex-col gap-1 w-full">
                   <div className="flex  gap-0 justify-between items-center w-full">
@@ -252,7 +252,7 @@ const Analytics = () => {
                 </div>
               </div>
             </div>
-            <div className="border-zinc-800 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
+            <div className="border-stone-200 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
               <div className="p-4 flex gap-4 items-center flex-1 justify-between h-full relative  ">
                 <div className="flex flex-col gap-1 w-full">
                   <div className="flex  gap-0 justify-between items-center w-full">
@@ -291,7 +291,7 @@ const Analytics = () => {
                 </div>
               </div>
             </div>
-            <div className="border-zinc-800 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
+            <div className="border-stone-200 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
               <div className="p-4 flex gap-4 items-center flex-1 justify-between h-full relative  ">
                 <div className="flex flex-col gap-1 w-full">
                   <div className="flex  gap-0 justify-between items-center w-full">
@@ -335,7 +335,7 @@ const Analytics = () => {
                 </div>
               </div>
             </div>
-            <div className="border-zinc-800 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
+            <div className="border-stone-200 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
               <div className="p-4 flex gap-4 items-center flex-1 justify-between h-full relative  ">
                 <div className="flex flex-col gap-1 w-full">
                   <div className="flex  gap-0 justify-between items-center w-full">
@@ -371,7 +371,7 @@ const Analytics = () => {
                 </div>
               </div>
             </div>
-            <div className="border-zinc-800 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
+            <div className="border-stone-200 [&:nth-child(-n+4)]:border-b [&:not(:nth-child(4n))]:border-r ">
               <div className="p-4 flex gap-4 items-center flex-1 justify-between h-full relative  ">
                 <div className="flex flex-col gap-1 w-full">
                   <div className="flex  gap-0 justify-between items-center w-full">
@@ -417,7 +417,7 @@ const Analytics = () => {
         <div className="flex py-4 px-6 items-center justify-center">
           <a
             type="button"
-            className=" cursor-pointer box-border  flex items-center justify-center font-semibold font-mono uppercase border transition-all ease-in duration-75 whitespace-nowrap text-center select-none disabled:shadow-none disabled:opacity-50 disabled:cursor-not-allowed gap-x-1 active:shadow-none active:scale-95 text-xs leading-4 rounded-lg px-3 py-1 h-6 bg-stone-0 border-zinc-800 hover:bg-stone-100 hover:border-stone-300 disabled:bg-stone-100 disabled:border-zinc-800 dark:bg-stone-100 dark:border-zinc-800 dark:hover:bg-stone-200 dark:hover:border-stone-300 disabled:dark:bg-stone-200"
+            className=" cursor-pointer box-border  flex items-center justify-center font-semibold font-mono uppercase border transition-all ease-in duration-75 whitespace-nowrap text-center select-none disabled:shadow-none disabled:opacity-50 disabled:cursor-not-allowed gap-x-1 active:shadow-none active:scale-95 text-xs leading-4 rounded-lg px-3 py-1 h-6 bg-stone-0 border-stone-200 hover:bg-stone-100 hover:border-stone-300 disabled:bg-stone-100 disabled:border-stone-200"
             translate="no"
             href="/logs"
           >

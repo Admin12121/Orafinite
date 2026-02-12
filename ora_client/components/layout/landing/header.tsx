@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 // import { LINKS } from "@/constants/links";
 import Image from "next/image";
 import Link from "next/link";
-import React from "react";
+import { ModeSwitcher } from "./mode-switch";
 
 const Header = () => {
   return (
@@ -16,7 +16,7 @@ const Header = () => {
         </span>
       </Link>
       <div className="flex flex-row items-center gap-3">
-        {/*<ThemeSwitch />*/}
+        <ModeSwitcher />
         <Link href={"/login"}>
           <Button variant="secondary">
             <span>Get Started</span>

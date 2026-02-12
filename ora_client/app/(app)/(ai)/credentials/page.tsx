@@ -336,24 +336,41 @@ const LANGUAGES = [
 // Helpers
 // ============================================
 
+/** Per-scanner default thresholds tuned to reduce false positives. */
+const INPUT_SCANNER_THRESHOLDS: Partial<Record<InputScannerName, number>> = {
+  prompt_injection: 0.5,
+  toxicity: 0.7,
+  anonymize: 0.6,
+  gibberish: 0.7,
+  sentiment: -0.5,
+};
+
 function buildDefaultInputScanners(): Record<string, ScannerEntry> {
   const entries: Record<string, ScannerEntry> = {};
   for (const name of ALL_INPUT_SCANNERS) {
     entries[name] = {
       enabled: DEFAULT_INPUT_SCANNERS.includes(name),
-      threshold: 0.5,
+      threshold: INPUT_SCANNER_THRESHOLDS[name] ?? 0.5,
       settingsJson: "",
     };
   }
   return entries;
 }
 
+/** Per-scanner default thresholds for output scanners. */
+const OUTPUT_SCANNER_THRESHOLDS: Partial<Record<OutputScannerName, number>> = {
+  toxicity: 0.7,
+  bias: 0.7,
+  gibberish: 0.7,
+  sentiment: -0.5,
+};
+
 function buildDefaultOutputScanners(): Record<string, ScannerEntry> {
   const entries: Record<string, ScannerEntry> = {};
   for (const name of ALL_OUTPUT_SCANNERS) {
     entries[name] = {
       enabled: DEFAULT_OUTPUT_SCANNERS.includes(name),
-      threshold: 0.5,
+      threshold: OUTPUT_SCANNER_THRESHOLDS[name] ?? 0.5,
       settingsJson: "",
     };
   }
@@ -469,8 +486,8 @@ function ScannerToggleRow({
     <div
       className={`border rounded-lg transition-all duration-150 ${
         entry.enabled
-          ? "border-zinc-700 bg-zinc-900"
-          : "border-zinc-800/50 bg-zinc-900/30 opacity-50"
+          ? "border-stone-300 bg-stone-50"
+          : "border-stone-200 bg-stone-50 opacity-50"
       }`}
     >
       <div className="flex items-center gap-2.5 px-3 py-2">
@@ -478,7 +495,7 @@ function ScannerToggleRow({
         <button
           onClick={onToggle}
           className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${
-            entry.enabled ? "bg-lime-600" : "bg-zinc-700"
+            entry.enabled ? "bg-lime-600" : "bg-stone-200"
           }`}
           aria-label={`Toggle ${meta.label}`}
         >
@@ -492,7 +509,7 @@ function ScannerToggleRow({
         {/* Label + category */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold text-stone-200 truncate">
+            <span className="text-xs font-semibold text-stone-800 truncate">
               {meta.label}
             </span>
             <span
@@ -518,7 +535,7 @@ function ScannerToggleRow({
       </div>
 
       {expanded && (
-        <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
+        <div className="border-t border-stone-200 px-3 py-2 space-y-2">
           {/* Threshold */}
           <div className="flex items-center gap-2">
             <label className="text-[10px] text-stone-500 font-mono uppercase w-16">
@@ -545,7 +562,7 @@ function ScannerToggleRow({
                 Settings (JSON)
               </label>
               <textarea
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] font-mono text-stone-300 min-h-[40px] focus:outline-none focus:border-zinc-600 resize-y"
+                className="w-full bg-stone-100 border border-stone-300 rounded px-2 py-1.5 text-[11px] font-mono text-stone-700 min-h-[40px] focus:outline-none focus:border-stone-300 resize-y"
                 placeholder={meta.settingsHint || "{}"}
                 value={entry.settingsJson}
                 onChange={(e) => onSettingsChange(e.target.value)}
@@ -704,13 +721,13 @@ function GuardConfigPanel({
   });
 
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden">
+    <div className="bg-stone-50 border border-stone-300 rounded-2xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200">
         <div className="flex items-center gap-3">
           <IconShieldBolt className="w-5 h-5 text-lime-500" />
           <div>
-            <h3 className="text-sm font-bold text-stone-200">
+            <h3 className="text-sm font-bold text-stone-800">
               Guard Protection Config
             </h3>
             <p className="text-[11px] text-stone-500">
@@ -723,7 +740,7 @@ function GuardConfigPanel({
         </div>
         <button
           onClick={onClose}
-          className="text-stone-500 hover:text-stone-300 transition-colors p-1"
+          className="text-stone-500 hover:text-stone-700 transition-colors p-1"
         >
           <IconX className="w-4 h-4" />
         </button>
@@ -759,7 +776,7 @@ function GuardConfigPanel({
                   className={`flex-1 px-3 py-2 text-xs font-mono uppercase rounded-lg border transition-colors ${
                     scanMode === mode
                       ? "bg-lime-500/20 border-lime-500 text-lime-400"
-                      : "border-zinc-700 text-stone-500 hover:text-stone-300"
+                      : "border-stone-300 text-stone-500 hover:text-stone-700"
                   }`}
                 >
                   <span className="mr-1">{icon}</span>
@@ -788,7 +805,7 @@ function GuardConfigPanel({
                   type="checkbox"
                   checked={sanitize}
                   onChange={(e) => setSanitize(e.target.checked)}
-                  className="rounded border-zinc-600 accent-lime-500"
+                  className="rounded border-stone-300 accent-lime-500"
                 />
                 <span className="text-xs text-stone-400">
                   Return sanitized text
@@ -799,7 +816,7 @@ function GuardConfigPanel({
                   type="checkbox"
                   checked={failFast}
                   onChange={(e) => setFailFast(e.target.checked)}
-                  className="rounded border-zinc-600 accent-lime-500"
+                  className="rounded border-stone-300 accent-lime-500"
                 />
                 <span className="text-xs text-stone-400">
                   Fail fast (stop after first failure)
@@ -820,7 +837,7 @@ function GuardConfigPanel({
                   <span className="text-stone-400 font-semibold text-[11px] uppercase font-mono tracking-wider">
                     Input Scanners
                   </span>
-                  <span className="text-[10px] font-mono bg-zinc-800 text-stone-500 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded">
                     {countEnabled(inputScanners)}/{ALL_INPUT_SCANNERS.length}
                   </span>
                 </div>
@@ -845,7 +862,7 @@ function GuardConfigPanel({
                 placeholder="Filter scanners..."
                 value={inputFilter}
                 onChange={(e) => setInputFilter(e.target.value)}
-                className="w-full bg-zinc-800/50 border border-zinc-800 rounded-lg px-3 py-1.5 text-[11px] text-stone-400 placeholder-stone-600 focus:outline-none focus:border-zinc-700"
+                className="w-full bg-stone-100 border border-stone-200 rounded-lg px-3 py-1.5 text-[11px] text-stone-400 placeholder-stone-600 focus:outline-none focus:border-stone-300"
               />
 
               <div className="flex flex-col gap-1.5 max-h-[400px] overflow-y-auto pr-1">
@@ -880,7 +897,7 @@ function GuardConfigPanel({
                   <span className="text-stone-400 font-semibold text-[11px] uppercase font-mono tracking-wider">
                     Output Scanners
                   </span>
-                  <span className="text-[10px] font-mono bg-zinc-800 text-stone-500 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded">
                     {countEnabled(outputScanners)}/{ALL_OUTPUT_SCANNERS.length}
                   </span>
                 </div>
@@ -905,7 +922,7 @@ function GuardConfigPanel({
                 placeholder="Filter scanners..."
                 value={outputFilter}
                 onChange={(e) => setOutputFilter(e.target.value)}
-                className="w-full bg-zinc-800/50 border border-zinc-800 rounded-lg px-3 py-1.5 text-[11px] text-stone-400 placeholder-stone-600 focus:outline-none focus:border-zinc-700"
+                className="w-full bg-stone-100 border border-stone-200 rounded-lg px-3 py-1.5 text-[11px] text-stone-400 placeholder-stone-600 focus:outline-none focus:border-stone-300"
               />
 
               <div className="flex flex-col gap-1.5 max-h-[400px] overflow-y-auto pr-1">
@@ -940,7 +957,7 @@ function GuardConfigPanel({
         )}
 
         {/* Action Buttons */}
-        <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
+        <div className="flex items-center justify-between pt-3 border-t border-stone-200">
           <div className="flex gap-2">
             {hasExisting && (
               <Button
@@ -995,7 +1012,7 @@ function GuardConfigPanel({
 function ConfigBadge({ config }: { config: GuardConfig | null }) {
   if (!config) {
     return (
-      <span className="text-[10px] font-mono text-stone-600 px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900/50">
+      <span className="text-[10px] font-mono text-stone-600 px-1.5 py-0.5 rounded border border-stone-200 bg-stone-50">
         No config
       </span>
     );
@@ -1132,7 +1149,7 @@ export default function CredentialsPage() {
     <section className="px-4 py-6 w-full flex flex-col gap-10">
       <div>
         <h1 className="text-xl font-bold">API Credentials</h1>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-stone-500">
           Manage API keys and configure per-key guard protection for the LLM
           Guard API
         </p>
@@ -1160,7 +1177,7 @@ export default function CredentialsPage() {
 
         {/* New Key Form */}
         {showCreate && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
             <div className="flex flex-col gap-4">
               <div className="space-y-2">
                 <Label htmlFor="keyName">Key Name</Label>
@@ -1193,7 +1210,7 @@ export default function CredentialsPage() {
                 Copy this key now. You won&apos;t be able to see it again.
               </p>
               <div className="flex gap-2 items-center">
-                <code className="flex-1 bg-zinc-800 px-4 py-2 rounded-lg font-mono text-sm break-all">
+                <code className="flex-1 bg-stone-100 px-4 py-2 rounded-lg font-mono text-sm break-all">
                   {newKey}
                 </code>
                 <Button
@@ -1224,7 +1241,7 @@ export default function CredentialsPage() {
         )}
 
         {/* Keys List */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden">
           {keys.length === 0 ? (
             <div className="p-8 text-center text-stone-500">
               <IconKey className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -1235,7 +1252,7 @@ export default function CredentialsPage() {
             </div>
           ) : (
             <table className="w-full">
-              <thead className="border-b border-zinc-800">
+              <thead className="border-b border-stone-200">
                 <tr className="text-left text-xs font-mono uppercase text-stone-500">
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Key</th>
@@ -1249,7 +1266,7 @@ export default function CredentialsPage() {
                 {keys.map((key) => (
                   <tr
                     key={key.id}
-                    className="border-b border-zinc-800 last:border-0"
+                    className="border-b border-stone-200 last:border-0"
                   >
                     <td className="px-4 py-3 font-medium">{key.name}</td>
                     <td className="px-4 py-3">
@@ -1282,7 +1299,7 @@ export default function CredentialsPage() {
                           className={`${
                             configuringKeyId === key.id
                               ? "text-lime-400 hover:text-lime-300"
-                              : "text-stone-500 hover:text-stone-300"
+                              : "text-stone-500 hover:text-stone-700"
                           }`}
                           title="Configure guard protection"
                         >
@@ -1357,11 +1374,11 @@ export default function CredentialsPage() {
           <span className="flex-1 h-px bg-stone-200"></span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 mb-2">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl p-5 mb-2">
           <div className="flex items-start gap-3 mb-4">
             <IconShieldBolt className="w-5 h-5 text-lime-500 mt-0.5 flex-shrink-0" />
             <div className="text-xs text-stone-400 space-y-1.5">
-              <p className="font-semibold text-stone-300">
+              <p className="font-semibold text-stone-700">
                 Per-key protection means simpler API calls
               </p>
               <p>
@@ -1379,11 +1396,11 @@ export default function CredentialsPage() {
                 <li>
                   <span className="font-mono text-lime-400">both</span>
                   {" → "}send{" "}
-                  <code className="text-stone-300 bg-zinc-800 px-1 py-0.5 rounded">
+                  <code className="text-stone-700 bg-stone-100 px-1 py-0.5 rounded">
                     X-Scan-Type: prompt
                   </code>{" "}
                   or{" "}
-                  <code className="text-stone-300 bg-zinc-800 px-1 py-0.5 rounded">
+                  <code className="text-stone-700 bg-stone-100 px-1 py-0.5 rounded">
                     X-Scan-Type: output
                   </code>{" "}
                   header to specify what you&apos;re scanning
@@ -1397,18 +1414,18 @@ export default function CredentialsPage() {
           </div>
         </div>
 
-        <div className="flex border border-zinc-800 rounded-2xl overflow-hidden">
+        <div className="flex border border-stone-200 rounded-2xl overflow-hidden">
           {/* Language Tabs */}
-          <div className="flex flex-col border-r border-zinc-800 bg-zinc-900/50">
+          <div className="flex flex-col border-r border-stone-200 bg-stone-50">
             {LANGUAGES.map((lang) => (
               <button
                 key={lang.id}
                 type="button"
                 onClick={() => setSelectedLang(lang.id)}
-                className={`flex items-center gap-3 px-4 py-3 border-b border-zinc-800 last:border-b-0 transition-colors duration-200 ease cursor-pointer ${
+                className={`flex items-center gap-3 px-4 py-3 border-b border-stone-200 last:border-b-0 transition-colors duration-200 ease cursor-pointer ${
                   selectedLang === lang.id
-                    ? "bg-zinc-800"
-                    : "bg-zinc-900/50 hover:bg-zinc-800/50"
+                    ? "bg-stone-100"
+                    : "bg-stone-50 hover:bg-stone-100"
                 }`}
               >
                 <img
@@ -1419,7 +1436,7 @@ export default function CredentialsPage() {
                 <span
                   className={`text-sm font-medium ${
                     selectedLang === lang.id
-                      ? "text-stone-200"
+                      ? "text-stone-800"
                       : "text-stone-500"
                   }`}
                 >
@@ -1430,7 +1447,7 @@ export default function CredentialsPage() {
           </div>
 
           {/* Code Display */}
-          <div className="flex-1 bg-zinc-900 relative">
+          <div className="flex-1 bg-stone-50 relative">
             <div className="absolute top-4 right-4 z-10">
               <Button
                 size="sm"
@@ -1453,7 +1470,7 @@ export default function CredentialsPage() {
             </div>
             <div className="overflow-auto p-6 max-h-[450px] min-h-[450px]">
               <pre className="whitespace-pre text-sm">
-                <code className="text-stone-300 font-mono">
+                <code className="text-stone-700 font-mono">
                   {codeSnippets[selectedLang as keyof typeof codeSnippets]}
                 </code>
               </pre>

@@ -302,3 +302,9 @@ li::marker {
     );
     background-size: 0.25rem 0.25rem;
 }
+
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}

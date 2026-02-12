@@ -486,23 +486,61 @@ pub async fn scan_prompt(
         )
     })?;
 
-    // Build scan options
-    let options = GrpcScanOptions {
-        check_injection: req.options.check_injection,
-        check_toxicity: req.options.check_toxicity,
-        check_pii: req.options.check_pii,
-        sanitize: req.options.sanitize,
-    };
+    // ── Upgrade to advanced scan when API key has guard_config ──
+    // The simple /guard/scan endpoint historically only ran 5 hardcoded
+    // scanners (prompt_injection, invisible_text, toxicity, anonymize,
+    // secrets). When the user configures per-key scanners via the UI
+    // (guard_config), we now route through the advanced scan path so
+    // ALL configured scanners actually execute.
+    let (threats, risk_score, sanitized_prompt) = if api_key.guard_config.is_some() {
+        tracing::info!(
+            "API key {} has guard_config — upgrading simple scan to advanced scan path",
+            api_key.id
+        );
 
-    // Execute ML scan - fail if scan fails
-    let result = client
-        .scan_prompt(&req.prompt, options)
-        .await
-        .map_err(|e| {
+        // Build a synthetic AdvancedScanRequest so we can reuse
+        // resolve_scan_config which merges per-key defaults properly.
+        let synthetic_req = AdvancedScanRequest {
+            prompt: req.prompt.clone(),
+            output: String::new(),
+            scan_mode: ApiScanMode::PromptOnly,
+            input_scanners: HashMap::new(), // empty → per-key config wins
+            output_scanners: HashMap::new(),
+            sanitize: req.options.sanitize,
+            fail_fast: false,
+        };
+
+        let resolved = resolve_scan_config(&api_key, &headers, &synthetic_req)?;
+
+        let grpc_input_scanners: HashMap<String, GrpcScannerConfigEntry> = resolved
+            .input_scanners
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect();
+
+        let grpc_output_scanners: HashMap<String, GrpcScannerConfigEntry> = resolved
+            .output_scanners
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect();
+
+        let grpc_opts = GrpcAdvancedScanOptions {
+            prompt: req.prompt.clone(),
+            output: String::new(),
+            scan_mode: GrpcScanMode::PromptOnly,
+            input_scanners: grpc_input_scanners,
+            output_scanners: grpc_output_scanners,
+            sanitize: resolved.sanitize,
+            fail_fast: resolved.fail_fast,
+        };
+
+        let result = client.advanced_scan(grpc_opts).await.map_err(|e| {
             let error_msg = e.to_string();
-            tracing::error!("ML scan failed: {}", error_msg);
+            tracing::error!(
+                "ML advanced scan (via simple endpoint) failed: {}",
+                error_msg
+            );
 
-            // Determine appropriate error code based on gRPC status
             let (status, code) = match e.code() {
                 tonic::Code::DeadlineExceeded => (StatusCode::GATEWAY_TIMEOUT, "SCAN_TIMEOUT"),
                 tonic::Code::ResourceExhausted => (StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED"),
@@ -519,19 +557,73 @@ pub async fn scan_prompt(
             )
         })?;
 
-    let latency_ms = start.elapsed().as_millis() as u64;
+        // Convert advanced scan results into simple ThreatDetection list
+        let threats: Vec<ThreatDetection> = result
+            .input_results
+            .into_iter()
+            .filter(|r| !r.is_valid)
+            .map(|r| ThreatDetection {
+                threat_type: r.scanner_name.clone(),
+                confidence: r.score,
+                description: if r.description.is_empty() {
+                    format!("Detected potential {} issue", r.scanner_name)
+                } else {
+                    r.description
+                },
+                severity: r.severity,
+            })
+            .collect();
 
-    // Build response from ML result
-    let threats: Vec<ThreatDetection> = result
-        .threats
-        .into_iter()
-        .map(|t| ThreatDetection {
-            threat_type: t.threat_type,
-            confidence: t.confidence,
-            description: t.description,
-            severity: t.severity,
-        })
-        .collect();
+        (threats, result.risk_score, result.sanitized_prompt)
+    } else {
+        // ── Legacy path: no guard_config on key, use simple scan ──
+        let options = GrpcScanOptions {
+            check_injection: req.options.check_injection,
+            check_toxicity: req.options.check_toxicity,
+            check_pii: req.options.check_pii,
+            sanitize: req.options.sanitize,
+        };
+
+        let result = client
+            .scan_prompt(&req.prompt, options)
+            .await
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                tracing::error!("ML scan failed: {}", error_msg);
+
+                let (status, code) = match e.code() {
+                    tonic::Code::DeadlineExceeded => (StatusCode::GATEWAY_TIMEOUT, "SCAN_TIMEOUT"),
+                    tonic::Code::ResourceExhausted => {
+                        (StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED")
+                    }
+                    tonic::Code::InvalidArgument => (StatusCode::BAD_REQUEST, "INVALID_REQUEST"),
+                    tonic::Code::Unavailable => {
+                        (StatusCode::SERVICE_UNAVAILABLE, "ML_SERVICE_UNAVAILABLE")
+                    }
+                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "SCAN_FAILED"),
+                };
+
+                (
+                    status,
+                    Json(ErrorResponse::new("Failed to scan prompt", code).with_details(error_msg)),
+                )
+            })?;
+
+        let threats: Vec<ThreatDetection> = result
+            .threats
+            .into_iter()
+            .map(|t| ThreatDetection {
+                threat_type: t.threat_type,
+                confidence: t.confidence,
+                description: t.description,
+                severity: t.severity,
+            })
+            .collect();
+
+        (threats, result.risk_score, result.sanitized_prompt)
+    };
+
+    let latency_ms = start.elapsed().as_millis() as u64;
 
     // Extract threat categories for logging and response
     let threat_categories: Vec<String> = threats.iter().map(|t| t.threat_type.clone()).collect();
@@ -539,10 +631,10 @@ pub async fn scan_prompt(
     let response_id = Uuid::new_v4();
     let response = ScanPromptResponse {
         id: response_id,
-        safe: result.safe,
-        sanitized_prompt: result.sanitized_prompt,
+        safe: threats.is_empty(),
+        sanitized_prompt: sanitized_prompt,
         threats,
-        risk_score: result.risk_score,
+        risk_score,
         latency_ms,
         cached: false,
         timestamp: Utc::now(),
@@ -597,23 +689,117 @@ fn extract_ip(headers: &HeaderMap) -> Option<&str> {
 }
 
 /// Look up plan-based monthly quota for an API key from the database.
-/// Falls back to MONTHLY_QUOTA_BASIC if lookup fails.
+///
+/// Resolution order (first non-default wins):
+///   1. `api_key.monthly_quota` — explicit per-key override
+///   2. `api_key.plan` — per-key plan (synced by Next.js verify route)
+///   3. `subscription.plan_id` — active subscription from eSewa payment
+///   4. `organization.plan` — org-level plan (synced by verify route)
+///   5. Falls back to MONTHLY_QUOTA_BASIC
+///
+/// This ensures that even if the api_key.plan column was not yet synced
+/// (e.g. key created before payment, or sync failed), the quota still
+/// reflects the user's actual subscription status.
 async fn lookup_api_key_quota(db: &sqlx::PgPool, api_key_id: Uuid) -> u32 {
     use sqlx::Row;
+
+    // Step 1 & 2: Check api_key's own plan/quota columns
     match sqlx::query("SELECT plan, monthly_quota FROM api_key WHERE id = $1")
         .bind(api_key_id)
         .fetch_optional(db)
         .await
     {
         Ok(Some(row)) => {
-            // Prefer explicit monthly_quota column if set
+            // Prefer explicit monthly_quota column if set and non-default
             let quota: Option<i32> = row.get("monthly_quota");
-            if let Some(q) = quota {
-                return q as u32;
-            }
-            // Otherwise derive from plan
             let plan: Option<String> = row.get("plan");
-            monthly_quota_for_plan(plan.as_deref().unwrap_or("basic"))
+
+            // If the api_key has a real plan set (not the migration default "basic"),
+            // or an explicit monthly_quota, use those directly.
+            let plan_str = plan.as_deref().unwrap_or("basic");
+            if plan_str != "basic" {
+                // api_key.plan was explicitly set (synced from payment)
+                if let Some(q) = quota {
+                    return q as u32;
+                }
+                return monthly_quota_for_plan(plan_str);
+            }
+            if let Some(q) = quota {
+                let default_basic_quota = MONTHLY_QUOTA_BASIC as i32;
+                if q != default_basic_quota {
+                    // Explicit non-default quota override
+                    return q as u32;
+                }
+            }
+            // api_key.plan is still "basic" (migration default) — fall through
+            // to check subscription / organization for the real plan
+        }
+        Err(e) => {
+            tracing::warn!("Failed to read api_key plan for {}: {}", api_key_id, e);
+            return MONTHLY_QUOTA_BASIC;
+        }
+        _ => return MONTHLY_QUOTA_BASIC,
+    }
+
+    // Step 3: Check active subscription for the org owner
+    // Join api_key → organization_member → subscription to find the
+    // user's real subscription plan (set by eSewa payment flow).
+    match sqlx::query(
+        r#"
+        SELECT s.plan_id, s.status, s.current_period_end
+        FROM subscription s
+        JOIN organization_member om ON om.user_id = s.user_id
+        JOIN api_key ak ON ak.organization_id = om.organization_id
+        WHERE ak.id = $1
+          AND s.status = 'active'
+          AND s.current_period_end > NOW()
+        LIMIT 1
+        "#,
+    )
+    .bind(api_key_id)
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(row)) => {
+            let sub_plan: String = row.get("plan_id");
+            tracing::debug!(
+                "Resolved quota from subscription for key {}: plan={}",
+                api_key_id,
+                sub_plan
+            );
+            return monthly_quota_for_plan(&sub_plan);
+        }
+        Ok(None) => {
+            // No active subscription — fall through to org plan
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to check subscription for api_key {}: {}",
+                api_key_id,
+                e
+            );
+            // Non-fatal — fall through
+        }
+    }
+
+    // Step 4: Check organization.plan as last resort
+    match sqlx::query(
+        r#"
+        SELECT o.plan
+        FROM organization o
+        JOIN api_key ak ON ak.organization_id = o.id
+        WHERE ak.id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(api_key_id)
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(row)) => {
+            let org_plan: Option<String> = row.get("plan");
+            let plan_str = org_plan.as_deref().unwrap_or("free");
+            monthly_quota_for_plan(plan_str)
         }
         _ => MONTHLY_QUOTA_BASIC,
     }

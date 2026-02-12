@@ -48,8 +48,7 @@ function computeStats(scans: Scan[]): GarakStats {
       ? riskScores.reduce((a, b) => a + b, 0) / riskScores.length
       : 0;
 
-  const highestRiskScore =
-    riskScores.length > 0 ? Math.max(...riskScores) : 0;
+  const highestRiskScore = riskScores.length > 0 ? Math.max(...riskScores) : 0;
 
   const sorted = [...scans].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -193,7 +192,7 @@ export default function GarakSummary() {
 
       {/* Main Card */}
       <div
-        className={`flex flex-col bg-zinc-900 border border-zinc-800 rounded-2xl transition-opacity ${
+        className={`flex flex-col bg-stone-50 border border-stone-200 rounded-2xl transition-opacity ${
           isLoading ? "opacity-60" : "opacity-100"
         }`}
       >
@@ -207,7 +206,7 @@ export default function GarakSummary() {
               setIsLoading(true);
               fetchScans();
             }}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-800 hover:bg-zinc-800 transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-stone-200 hover:bg-stone-100 transition-colors"
           >
             <IconRefresh
               className={`w-3 h-3 text-stone-500 ${isLoading ? "animate-spin" : ""}`}
@@ -219,14 +218,14 @@ export default function GarakSummary() {
         </div>
 
         {/* Stats Grid */}
-        <div className="border-y border-zinc-800 overflow-hidden shrink-0">
+        <div className="border-y border-stone-200 overflow-hidden shrink-0">
           {isLoading && scans.length === 0 ? (
             <div className="p-8 flex items-center justify-center">
               <IconLoader2 className="w-6 h-6 text-stone-500 animate-spin" />
             </div>
           ) : scans.length === 0 ? (
             <div className="p-8 text-center">
-              <IconRadar className="w-10 h-10 mx-auto mb-3 text-stone-700" />
+              <IconRadar className="w-10 h-10 mx-auto mb-3 text-stone-400" />
               <p className="text-stone-500 text-sm">
                 No vulnerability scans yet
               </p>
@@ -246,7 +245,7 @@ export default function GarakSummary() {
               {/* Stat Cards */}
               <div className="grid grid-cols-4">
                 {/* Total Scans */}
-                <div className="border-zinc-800 border-b border-r p-4">
+                <div className="border-stone-200 border-b border-r p-4">
                   <div className="flex flex-col gap-1">
                     <span className="flex items-center gap-2">
                       <IconRadar className="w-3 h-3 text-stone-500" />
@@ -266,7 +265,7 @@ export default function GarakSummary() {
                 </div>
 
                 {/* Vulnerabilities Found */}
-                <div className="border-zinc-800 border-b border-r p-4">
+                <div className="border-stone-200 border-b border-r p-4">
                   <div className="flex flex-col gap-1">
                     <span className="flex items-center gap-2">
                       <IconBug className="w-3 h-3 text-orange-500" />
@@ -292,7 +291,7 @@ export default function GarakSummary() {
                 </div>
 
                 {/* Average Risk */}
-                <div className="border-zinc-800 border-b border-r p-4">
+                <div className="border-stone-200 border-b border-r p-4">
                   <div className="flex flex-col gap-1">
                     <span className="flex items-center gap-2">
                       <IconFlame className="w-3 h-3 text-yellow-500" />
@@ -314,7 +313,7 @@ export default function GarakSummary() {
                 </div>
 
                 {/* Highest Risk */}
-                <div className="border-zinc-800 border-b p-4">
+                <div className="border-stone-200 border-b p-4">
                   <div className="flex flex-col gap-1">
                     <span className="flex items-center gap-2">
                       <IconSkull className="w-3 h-3 text-red-500" />
@@ -337,11 +336,11 @@ export default function GarakSummary() {
               </div>
 
               {/* Recent Scans List */}
-              <div className="divide-y divide-zinc-800">
+              <div className="divide-y divide-stone-200">
                 {recentScans.map((scan) => (
                   <div
                     key={scan.id}
-                    className="flex items-center gap-4 px-6 py-3 hover:bg-zinc-800/50 transition-colors"
+                    className="flex items-center gap-4 px-6 py-3 hover:bg-stone-100/50 transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       {getStatusIcon(scan.status)}
@@ -356,9 +355,10 @@ export default function GarakSummary() {
                     </div>
 
                     {/* Progress bar for running scans */}
-                    {(scan.status === "running" || scan.status === "queued") && (
+                    {(scan.status === "running" ||
+                      scan.status === "queued") && (
                       <div className="flex items-center gap-2 w-28">
-                        <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="w-16 h-1.5 bg-stone-200 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500 transition-all duration-300 rounded-full"
                             style={{ width: `${scan.progress}%` }}
@@ -418,7 +418,7 @@ export default function GarakSummary() {
         <div className="flex py-4 px-6 items-center justify-between">
           <Link
             href="/scanner"
-            className="cursor-pointer flex items-center justify-center font-semibold font-mono uppercase border transition-all ease-in duration-75 whitespace-nowrap text-center select-none gap-x-1 active:scale-95 text-xs leading-4 rounded-lg px-3 py-1 h-6 bg-stone-0 border-zinc-800 hover:bg-stone-100 hover:border-stone-300 dark:bg-stone-100 dark:border-zinc-800 dark:hover:bg-stone-200 dark:hover:border-stone-300"
+            className="cursor-pointer flex items-center justify-center font-semibold font-mono uppercase border transition-all ease-in duration-75 whitespace-nowrap text-center select-none gap-x-1 active:scale-95 text-xs leading-4 rounded-lg px-3 py-1 h-6 bg-stone-0 border-stone-200 hover:bg-stone-100 hover:border-stone-300"
           >
             Run New Scan
             <IconRadar className="w-3 h-3" />
@@ -426,7 +426,7 @@ export default function GarakSummary() {
           {scans.length > 0 && (
             <Link
               href="/reports"
-              className="cursor-pointer flex items-center justify-center font-semibold font-mono uppercase border transition-all ease-in duration-75 whitespace-nowrap text-center select-none gap-x-1 active:scale-95 text-xs leading-4 rounded-lg px-3 py-1 h-6 bg-stone-0 border-zinc-800 hover:bg-stone-100 hover:border-stone-300 dark:bg-stone-100 dark:border-zinc-800 dark:hover:bg-stone-200 dark:hover:border-stone-300"
+              className="cursor-pointer flex items-center justify-center font-semibold font-mono uppercase border transition-all ease-in duration-75 whitespace-nowrap text-center select-none gap-x-1 active:scale-95 text-xs leading-4 rounded-lg px-3 py-1 h-6 bg-stone-0 border-stone-200 hover:bg-stone-100 hover:border-stone-300"
             >
               View All Reports
               <IconChevronRight className="w-3 h-3 -mr-1" />

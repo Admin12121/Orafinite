@@ -44,7 +44,7 @@ function ThreatDetailRow({ log }: { log: GuardLog }) {
     }>) || [];
 
   return (
-    <tr className="bg-zinc-950 border-b border-zinc-800">
+    <tr className="bg-stone-50 border-b border-stone-200">
       <td colSpan={9} className="px-6 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Threat Details */}
@@ -57,7 +57,7 @@ function ThreatDetailRow({ log }: { log: GuardLog }) {
                 {threats.map((threat, i) => (
                   <div
                     key={i}
-                    className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex flex-col gap-1"
+                    className="bg-stone-50 border border-stone-200 rounded-lg p-3 flex flex-col gap-1"
                   >
                     <div className="flex items-center gap-2">
                       <span
@@ -73,7 +73,7 @@ function ThreatDetailRow({ log }: { log: GuardLog }) {
                       >
                         {threat.severity?.toUpperCase() || "UNKNOWN"}
                       </span>
-                      <span className="text-sm font-semibold text-stone-300">
+                      <span className="text-sm font-semibold text-stone-700">
                         {threat.threat_type || "Unknown"}
                       </span>
                       {threat.confidence !== undefined && (
@@ -123,7 +123,7 @@ function ThreatDetailRow({ log }: { log: GuardLog }) {
                 <h4 className="text-xs font-mono uppercase text-stone-500 font-semibold">
                   Prompt Content
                 </h4>
-                <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-xs text-stone-300 whitespace-pre-wrap wrap-break-word max-h-48 overflow-y-auto font-mono">
+                <pre className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-xs text-stone-700 whitespace-pre-wrap wrap-break-word max-h-48 overflow-y-auto font-mono">
                   {log.promptText}
                 </pre>
               </div>
@@ -134,7 +134,7 @@ function ThreatDetailRow({ log }: { log: GuardLog }) {
                 <h4 className="text-xs font-mono uppercase text-stone-500 font-semibold">
                   Sanitized Output
                 </h4>
-                <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-xs text-lime-300/80 whitespace-pre-wrap wrap-break-word max-h-32 overflow-y-auto font-mono">
+                <pre className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-xs text-lime-300/80 whitespace-pre-wrap wrap-break-word max-h-32 overflow-y-auto font-mono">
                   {log.sanitizedPrompt}
                 </pre>
               </div>
@@ -146,7 +146,7 @@ function ThreatDetailRow({ log }: { log: GuardLog }) {
                 <h4 className="text-xs font-mono uppercase text-stone-500 font-semibold">
                   Scan Configuration
                 </h4>
-                <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-xs text-stone-400 font-mono">
+                <pre className="bg-stone-50 border border-stone-200 rounded-lg p-2 text-xs text-stone-400 font-mono">
                   {JSON.stringify(log.scanOptions, null, 2)}
                 </pre>
               </div>
@@ -244,7 +244,7 @@ function PaginationControls({
   }
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800">
+    <div className="flex items-center justify-between px-4 py-3 border-t border-stone-200">
       <div className="text-xs text-stone-500 font-mono">
         {totalItems > 0 ? (
           <>
@@ -280,7 +280,7 @@ function PaginationControls({
               onClick={() => onPageChange(p)}
               disabled={isLoading}
               className={`h-7 w-7 p-0 text-xs font-mono ${
-                p === page ? "bg-zinc-700 text-white" : "text-stone-400"
+                p === page ? "bg-stone-200 text-stone-800" : "text-stone-400"
               }`}
             >
               {p}
@@ -526,14 +526,14 @@ export default function LogsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">Activity Logs</h1>
-          <p className="text-sm text-neutral-400">
+          <p className="text-sm text-stone-500">
             Monitor LLM Guard API activity and threat detection logs
           </p>
         </div>
         <div className="flex items-center gap-2">
           {/* SSE Connection Indicator */}
           <div
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-zinc-800 bg-zinc-900"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-stone-200 bg-stone-50"
             title={
               sseConnected
                 ? "Real-time updates active"
@@ -606,7 +606,7 @@ export default function LogsPage() {
         </div>
 
         <div className="grid grid-cols-4 gap-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
             <p className="text-xs text-stone-500 uppercase font-mono mb-2">
               Total Scans
             </p>
@@ -614,7 +614,7 @@ export default function LogsPage() {
               {stats.totalScans.toLocaleString()}
             </p>
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
             <p className="text-xs text-stone-500 uppercase font-mono mb-2">
               Threats Blocked
             </p>
@@ -622,7 +622,7 @@ export default function LogsPage() {
               {stats.threatsBlocked.toLocaleString()}
             </p>
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
             <p className="text-xs text-stone-500 uppercase font-mono mb-2">
               Safe Prompts
             </p>
@@ -630,7 +630,7 @@ export default function LogsPage() {
               {stats.safePrompts.toLocaleString()}
             </p>
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
             <p className="text-xs text-stone-500 uppercase font-mono mb-2">
               Avg Latency
             </p>
@@ -686,7 +686,7 @@ export default function LogsPage() {
 
         {/* Filter Bar */}
         {showFilters && (
-          <div className="flex gap-3 items-center bg-zinc-900/50 border border-zinc-800 rounded-xl p-3">
+          <div className="flex gap-3 items-center bg-stone-50 border border-stone-200 rounded-xl p-3">
             <div className="flex gap-2 items-center">
               <span className="text-xs text-stone-500 font-mono">Status:</span>
               {(["all", "safe", "threat"] as StatusFilter[]).map((s) => (
@@ -706,8 +706,8 @@ export default function LogsPage() {
                         ? "bg-lime-500/20 text-lime-400 border border-lime-500/30"
                         : s === "threat"
                           ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                          : "bg-zinc-700 text-white border border-zinc-600"
-                      : "text-stone-500 hover:text-stone-300 border border-transparent"
+                          : "bg-stone-200 text-stone-800 border border-stone-300"
+                      : "text-stone-500 hover:text-stone-700 border border-transparent"
                   }`}
                 >
                   {s}
@@ -715,7 +715,7 @@ export default function LogsPage() {
               ))}
             </div>
 
-            <div className="w-px h-4 bg-zinc-800"></div>
+            <div className="w-px h-4 bg-stone-100"></div>
 
             <div className="flex gap-2 items-center">
               <span className="text-xs text-stone-500 font-mono">Type:</span>
@@ -734,8 +734,8 @@ export default function LogsPage() {
                   }}
                   className={`text-xs px-2.5 py-1 rounded-md font-mono uppercase transition-colors ${
                     typeFilter === t
-                      ? "bg-zinc-700 text-white border border-zinc-600"
-                      : "text-stone-500 hover:text-stone-300 border border-transparent"
+                      ? "bg-stone-200 text-stone-800 border border-stone-300"
+                      : "text-stone-500 hover:text-stone-700 border border-transparent"
                   }`}
                 >
                   {t}
@@ -745,10 +745,10 @@ export default function LogsPage() {
 
             {hasActiveFilters && (
               <>
-                <div className="w-px h-4 bg-zinc-800"></div>
+                <div className="w-px h-4 bg-stone-100"></div>
                 <button
                   onClick={clearFilters}
-                  className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1"
+                  className="text-xs text-stone-500 hover:text-stone-700 flex items-center gap-1"
                 >
                   <IconX className="w-3 h-3" />
                   Clear
@@ -758,7 +758,7 @@ export default function LogsPage() {
           </div>
         )}
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden relative">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden relative">
           {displayLogs.length === 0 && !isLoading ? (
             <div className="p-8 text-center text-stone-500">
               <IconListSearch className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -771,7 +771,7 @@ export default function LogsPage() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="border-b border-zinc-800 bg-zinc-800/50">
+                  <thead className="border-b border-stone-200 bg-stone-100">
                     <tr className="text-left text-xs font-mono uppercase text-stone-500">
                       <th className="px-2 py-3 w-8"></th>
                       <th className="px-4 py-3">Status</th>
@@ -784,7 +784,7 @@ export default function LogsPage() {
                       <th className="px-4 py-3">Time</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-800">
+                  <tbody className="divide-y divide-stone-200">
                     {displayLogs.map((log) => {
                       const threats = (log.threatsDetected as unknown[]) || [];
                       const isExpanded = expandedRows.has(log.id);
@@ -795,8 +795,8 @@ export default function LogsPage() {
                       return (
                         <Fragment key={log.id}>
                           <tr
-                            className={`hover:bg-zinc-800/50 cursor-pointer transition-colors ${
-                              isExpanded ? "bg-zinc-800/30" : ""
+                            className={`hover:bg-stone-100 cursor-pointer transition-colors ${
+                              isExpanded ? "bg-stone-100" : ""
                             } ${isNewRealtime ? "animate-in fade-in slide-in-from-top-1 duration-300" : ""}`}
                             onClick={() => toggleRow(log.id)}
                           >
@@ -918,7 +918,7 @@ export default function LogsPage() {
 
           {/* Loading overlay */}
           {isLoading && displayLogs.length > 0 && (
-            <div className="absolute inset-0 bg-zinc-900/50 flex items-center justify-center rounded-2xl z-10">
+            <div className="absolute inset-0 bg-stone-50 flex items-center justify-center rounded-2xl z-10">
               <IconRefresh className="w-6 h-6 animate-spin text-stone-400" />
             </div>
           )}

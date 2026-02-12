@@ -124,7 +124,12 @@ export const auth = betterAuth({
     passkey({
       rpID: process.env.PASSKEY_RP_ID || "localhost",
       rpName: process.env.PASSKEY_RP_NAME || "Orafinite",
-      origin: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+      // Do NOT set `origin` to a fixed string — WebAuthn binds credentials
+      // to the exact browser origin (protocol + host + port).  When omitted
+      // (or null), the plugin reads the request's Origin header, which is
+      // guaranteed to match the origin the browser used when creating the
+      // credential.  CSRF protection is handled separately by trustedOrigins.
+      origin: null,
     }),
     nextCookies(),
   ],

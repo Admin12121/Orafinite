@@ -135,7 +135,7 @@ function getConfirmationBadge(vuln: ScanResult) {
   }
   if ((vuln.retestCount ?? 0) === 0) {
     return (
-      <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/50 text-stone-400 border border-zinc-600 font-mono">
+      <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-stone-200/50 text-stone-400 border border-stone-300 font-mono">
         UNTESTED
       </span>
     );
@@ -202,7 +202,7 @@ function RetestPanel({
   const error = retestState?.error ?? null;
 
   return (
-    <div className="mt-4 p-4 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+    <div className="mt-4 p-4 bg-stone-100 rounded-lg border border-stone-300">
       <div className="flex items-center gap-2 mb-3">
         <IconRefresh className="w-4 h-4 text-blue-400" />
         <h4 className="text-sm font-semibold">Retest Vulnerability</h4>
@@ -342,7 +342,7 @@ function RetestPanel({
             {result.results.map((attempt) => (
               <div
                 key={attempt.attemptNumber}
-                className="flex items-center gap-3 p-2 bg-zinc-900/50 rounded text-xs"
+                className="flex items-center gap-3 p-2 bg-stone-50 rounded text-xs"
               >
                 <span className="text-stone-500 font-mono min-w-[5ch]">
                   #{attempt.attemptNumber}
@@ -424,7 +424,7 @@ function VerboseLogsPanel({
         </div>
       </div>
 
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden divide-y divide-zinc-800/50">
+      <div className="bg-stone-50 border border-stone-200 rounded-xl overflow-hidden divide-y divide-stone-200/50">
         {logs.length === 0 ? (
           <div className="p-6 text-center text-stone-500 text-sm">
             <IconTerminal2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -437,7 +437,7 @@ function VerboseLogsPanel({
                 onClick={() =>
                   setExpandedLog(expandedLog === log.id ? null : log.id)
                 }
-                className="w-full p-3 hover:bg-zinc-800/30 transition-colors text-left"
+                className="w-full p-3 hover:bg-stone-100 transition-colors text-left"
               >
                 <div className="flex items-center gap-3">
                   {getProbeStatusIcon(log.status)}
@@ -475,7 +475,7 @@ function VerboseLogsPanel({
                 </div>
               </button>
               {expandedLog === log.id && (
-                <div className="bg-zinc-950 border-t border-zinc-800 px-4 py-3">
+                <div className="bg-stone-50 border-t border-stone-200 px-4 py-3">
                   <div className="font-mono text-[11px] leading-5 space-y-0.5 max-h-[300px] overflow-auto">
                     {log.logLines.length > 0 ? (
                       log.logLines.map((line, i) => {
@@ -703,7 +703,7 @@ export default function ReportsPage() {
     <section className="px-4 py-6 w-full flex flex-col gap-10">
       <div>
         <h1 className="text-xl font-bold">Scan Reports</h1>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-stone-500">
           View detailed vulnerability reports, retest to confirm, and review
           verbose execution logs
         </p>
@@ -721,7 +721,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden">
             {scans.length === 0 ? (
               <div className="p-8 text-center text-stone-500">
                 <IconFileAnalytics className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -731,13 +731,13 @@ export default function ReportsPage() {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-zinc-800 max-h-[600px] overflow-auto">
+              <div className="divide-y divide-stone-200 max-h-[600px] overflow-auto">
                 {scans.map((scan) => (
                   <button
                     key={scan.id}
                     onClick={() => handleSelectScan(scan.id)}
-                    className={`w-full p-4 text-left hover:bg-zinc-800 transition-colors ${
-                      selectedScanId === scan.id ? "bg-zinc-800" : ""
+                    className={`w-full p-4 text-left hover:bg-stone-100 transition-colors ${
+                      selectedScanId === scan.id ? "bg-stone-100" : ""
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -783,14 +783,14 @@ export default function ReportsPage() {
           </div>
 
           {!selectedScan ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center text-stone-500">
+            <div className="bg-stone-50 border border-stone-200 rounded-2xl p-8 text-center text-stone-500">
               <IconFileAnalytics className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>Select a scan to view its report</p>
             </div>
           ) : (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+            <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden">
               {/* Report Header */}
-              <div className="p-6 border-b border-zinc-800">
+              <div className="p-6 border-b border-stone-200">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold capitalize">
                     {selectedScan.scanType} Scan Report
@@ -820,7 +820,7 @@ export default function ReportsPage() {
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-6 gap-3">
-                  <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                  <div className="p-3 bg-stone-100 rounded-lg text-center">
                     <p className="text-2xl font-bold">
                       {selectedScan.vulnerabilitiesFound || 0}
                     </p>
@@ -828,7 +828,7 @@ export default function ReportsPage() {
                       Total
                     </p>
                   </div>
-                  <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                  <div className="p-3 bg-stone-100 rounded-lg text-center">
                     <p className="text-2xl font-bold text-red-500">
                       {criticalCount}
                     </p>
@@ -836,7 +836,7 @@ export default function ReportsPage() {
                       Critical
                     </p>
                   </div>
-                  <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                  <div className="p-3 bg-stone-100 rounded-lg text-center">
                     <p className="text-2xl font-bold text-orange-500">
                       {highCount}
                     </p>
@@ -844,7 +844,7 @@ export default function ReportsPage() {
                       High
                     </p>
                   </div>
-                  <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                  <div className="p-3 bg-stone-100 rounded-lg text-center">
                     <p className="text-2xl font-bold text-yellow-500">
                       {mediumCount}
                     </p>
@@ -852,7 +852,7 @@ export default function ReportsPage() {
                       Medium
                     </p>
                   </div>
-                  <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                  <div className="p-3 bg-stone-100 rounded-lg text-center">
                     <p className="text-2xl font-bold text-blue-400">
                       {lowCount}
                     </p>
@@ -860,7 +860,7 @@ export default function ReportsPage() {
                       Low
                     </p>
                   </div>
-                  <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                  <div className="p-3 bg-stone-100 rounded-lg text-center">
                     <p className="text-2xl font-bold text-stone-400">
                       {untestedCount}
                     </p>
@@ -872,13 +872,13 @@ export default function ReportsPage() {
               </div>
 
               {/* Section Tabs */}
-              <div className="flex border-b border-zinc-800">
+              <div className="flex border-b border-stone-200">
                 <button
                   onClick={() => setActiveSection("vulns")}
                   className={`px-4 py-2.5 text-xs font-mono uppercase tracking-wider transition-colors ${
                     activeSection === "vulns"
-                      ? "text-white border-b-2 border-blue-500 bg-zinc-800/50"
-                      : "text-stone-500 hover:text-stone-300"
+                      ? "text-white border-b-2 border-blue-500 bg-stone-100"
+                      : "text-stone-500 hover:text-stone-700"
                   }`}
                 >
                   <div className="flex items-center gap-1.5">
@@ -890,8 +890,8 @@ export default function ReportsPage() {
                   onClick={handleShowLogs}
                   className={`px-4 py-2.5 text-xs font-mono uppercase tracking-wider transition-colors ${
                     activeSection === "logs"
-                      ? "text-white border-b-2 border-blue-500 bg-zinc-800/50"
-                      : "text-stone-500 hover:text-stone-300"
+                      ? "text-white border-b-2 border-blue-500 bg-stone-100"
+                      : "text-stone-500 hover:text-stone-700"
                   }`}
                 >
                   <div className="flex items-center gap-1.5">
@@ -916,7 +916,7 @@ export default function ReportsPage() {
                       </p>
                     </div>
                   ) : (
-                    <div className="divide-y divide-zinc-800">
+                    <div className="divide-y divide-stone-200">
                       {results.map((vuln) => (
                         <div
                           key={vuln.id}
@@ -928,7 +928,7 @@ export default function ReportsPage() {
                                 expandedVuln === vuln.id ? null : vuln.id,
                               )
                             }
-                            className="w-full p-4 text-left hover:bg-zinc-800/30 transition-colors"
+                            className="w-full p-4 text-left hover:bg-stone-100 transition-colors"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
@@ -978,17 +978,17 @@ export default function ReportsPage() {
                               {/* Meta info row */}
                               <div className="flex flex-wrap gap-3 text-[10px] text-stone-500">
                                 {vuln.detectorName && (
-                                  <span className="px-2 py-0.5 bg-zinc-800 rounded">
+                                  <span className="px-2 py-0.5 bg-stone-100 rounded">
                                     Detector: {vuln.detectorName}
                                   </span>
                                 )}
                                 {vuln.probeClass && (
-                                  <span className="px-2 py-0.5 bg-zinc-800 rounded font-mono">
+                                  <span className="px-2 py-0.5 bg-stone-100 rounded font-mono">
                                     {vuln.probeClass}
                                   </span>
                                 )}
                                 {vuln.successRate != null && (
-                                  <span className="px-2 py-0.5 bg-zinc-800 rounded">
+                                  <span className="px-2 py-0.5 bg-stone-100 rounded">
                                     Detector Score:{" "}
                                     {(vuln.successRate * 100).toFixed(1)}%
                                   </span>
@@ -1017,7 +1017,7 @@ export default function ReportsPage() {
                                           vuln.id,
                                         )
                                       }
-                                      className="flex items-center gap-1 text-[10px] text-stone-500 hover:text-stone-300 transition-colors"
+                                      className="flex items-center gap-1 text-[10px] text-stone-500 hover:text-stone-700 transition-colors"
                                     >
                                       {copiedId === vuln.id ? (
                                         <>
@@ -1032,7 +1032,7 @@ export default function ReportsPage() {
                                       )}
                                     </button>
                                   </div>
-                                  <pre className="text-sm bg-zinc-800 p-3 rounded overflow-x-auto max-h-[200px] overflow-y-auto text-orange-300/80 font-mono text-xs leading-5">
+                                  <pre className="text-sm bg-stone-100 p-3 rounded overflow-x-auto max-h-[200px] overflow-y-auto text-orange-300/80 font-mono text-xs leading-5">
                                     {vuln.attackPrompt}
                                   </pre>
                                 </div>
@@ -1044,7 +1044,7 @@ export default function ReportsPage() {
                                   <p className="text-xs text-stone-500 uppercase font-mono mb-1">
                                     Model Response
                                   </p>
-                                  <pre className="text-sm bg-zinc-800 p-3 rounded overflow-x-auto max-h-[200px] overflow-y-auto text-red-300/80 font-mono text-xs leading-5">
+                                  <pre className="text-sm bg-stone-100 p-3 rounded overflow-x-auto max-h-[200px] overflow-y-auto text-red-300/80 font-mono text-xs leading-5">
                                     {vuln.modelResponse}
                                   </pre>
                                 </div>

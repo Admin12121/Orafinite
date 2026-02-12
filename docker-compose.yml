@@ -205,6 +205,10 @@ services:
       # Passkey configuration
       PASSKEY_RP_ID: ${PASSKEY_RP_ID:-localhost}
       PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-Orafinite}
+      # eSewa payment integration
+      ESEWA_SECRET_KEY: ${ESEWA_SECRET_KEY:-}
+      ESEWA_PRODUCT_CODE: ${ESEWA_PRODUCT_CODE:-}
+      ESEWA_ENVIRONMENT: ${ESEWA_ENVIRONMENT:-sandbox}
       NODE_ENV: production
     # No external ports - internal only
     expose:

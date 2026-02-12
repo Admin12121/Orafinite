@@ -3,7 +3,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc};
 use serde::Serialize;
 use sqlx::Row;
 use uuid::Uuid;
@@ -24,6 +24,28 @@ pub struct OrganizationResponse {
     pub plan: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizationUsageResponse {
+    pub organization_id: Uuid,
+    pub plan: Option<String>,
+    /// Total LLM Guard scans in the current billing period
+    pub guard_scans_used: i64,
+    /// Total Garak vulnerability scans in the current billing period
+    pub garak_scans_used: i64,
+    /// Number of active (non-revoked) API keys
+    pub api_keys_used: i64,
+    /// Number of model configurations
+    pub model_configs_used: i64,
+    /// Total threats blocked in the current billing period
+    pub threats_blocked: i64,
+    /// Average guard scan latency in ms
+    pub avg_latency_ms: i64,
+    /// Billing period start (ISO 8601)
+    pub billing_period_start: DateTime<Utc>,
+    /// Billing period end (ISO 8601)
+    pub billing_period_end: DateTime<Utc>,
 }
 
 // ============================================
@@ -188,4 +210,206 @@ pub async fn get_current_organization(
         }))),
         None => Ok(Json(None)),
     }
+}
+
+// ============================================
+// Usage Helpers
+// ============================================
+
+/// Compute the current billing period (1st of current month → 1st of next month, UTC).
+fn current_billing_period() -> (DateTime<Utc>, DateTime<Utc>) {
+    let now = Utc::now();
+    let start = NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
+        .unwrap_or(now.date_naive())
+        .and_time(NaiveTime::MIN)
+        .and_utc();
+
+    let (next_year, next_month) = if now.month() == 12 {
+        (now.year() + 1, 1)
+    } else {
+        (now.year(), now.month() + 1)
+    };
+
+    let end = NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .unwrap_or(now.date_naive())
+        .and_time(NaiveTime::MIN)
+        .and_utc();
+
+    (start, end)
+}
+
+// ============================================
+// Usage Handler
+// ============================================
+
+/// Get organization usage statistics for the current billing period.
+///
+/// Returns counts of guard scans, Garak scans, API keys, model configs,
+/// threats blocked, and average latency — all scoped to the user's org
+/// and the current calendar-month billing period.
+///
+/// **Auth: Session Required**
+pub async fn get_organization_usage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<OrganizationUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let user = require_session_from_headers(&state.db, &headers)
+        .await
+        .map_err(|(status, json)| {
+            (
+                status,
+                Json(ErrorResponse::new(json.error.clone(), json.code.clone())),
+            )
+        })?;
+
+    // Fetch organization
+    let org_row = sqlx::query(
+        r#"
+        SELECT o.id, o.plan
+        FROM organization o
+        JOIN organization_member om ON o.id = om.organization_id
+        WHERE om.user_id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(&user.user_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                format!("Database error: {}", e),
+                "DB_ERROR",
+            )),
+        )
+    })?;
+
+    let org_row = org_row.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new(
+                "Organization not found",
+                "ORG_NOT_FOUND",
+            )),
+        )
+    })?;
+
+    let org_id: Uuid = org_row.get("id");
+    let plan: Option<String> = org_row.get("plan");
+
+    let (period_start, period_end) = current_billing_period();
+
+    // Run all usage queries in parallel using tokio::join!
+    let (guard_result, garak_result, api_keys_result, models_result) = tokio::join!(
+        // Guard scans in billing period
+        sqlx::query(
+            r#"
+            SELECT
+                COUNT(*) as total_scans,
+                COUNT(*) FILTER (WHERE is_safe = false) as threats_blocked,
+                COALESCE(AVG(latency_ms)::BIGINT, 0) as avg_latency
+            FROM guard_log
+            WHERE organization_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+            "#,
+        )
+        .bind(org_id)
+        .bind(period_start.naive_utc())
+        .bind(period_end.naive_utc())
+        .fetch_one(&state.db),
+        // Garak scans in billing period
+        sqlx::query(
+            r#"
+            SELECT COUNT(*) as total_scans
+            FROM scan
+            WHERE organization_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+            "#,
+        )
+        .bind(org_id)
+        .bind(period_start.naive_utc())
+        .bind(period_end.naive_utc())
+        .fetch_one(&state.db),
+        // Active API keys (not revoked)
+        sqlx::query(
+            r#"
+            SELECT COUNT(*) as total_keys
+            FROM api_key
+            WHERE organization_id = $1
+              AND revoked_at IS NULL
+            "#,
+        )
+        .bind(org_id)
+        .fetch_one(&state.db),
+        // Model configurations
+        sqlx::query(
+            r#"
+            SELECT COUNT(*) as total_models
+            FROM model_config
+            WHERE organization_id = $1
+            "#,
+        )
+        .bind(org_id)
+        .fetch_one(&state.db),
+    );
+
+    let guard_row = guard_result.map_err(|e| {
+        tracing::error!("Failed to query guard usage: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Failed to get usage data",
+                "DB_QUERY_FAILED",
+            )),
+        )
+    })?;
+
+    let garak_row = garak_result.map_err(|e| {
+        tracing::error!("Failed to query garak usage: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Failed to get usage data",
+                "DB_QUERY_FAILED",
+            )),
+        )
+    })?;
+
+    let api_keys_row = api_keys_result.map_err(|e| {
+        tracing::error!("Failed to query api keys: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Failed to get usage data",
+                "DB_QUERY_FAILED",
+            )),
+        )
+    })?;
+
+    let models_row = models_result.map_err(|e| {
+        tracing::error!("Failed to query model configs: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Failed to get usage data",
+                "DB_QUERY_FAILED",
+            )),
+        )
+    })?;
+
+    Ok(Json(OrganizationUsageResponse {
+        organization_id: org_id,
+        plan,
+        guard_scans_used: guard_row.get::<i64, _>("total_scans"),
+        garak_scans_used: garak_row.get::<i64, _>("total_scans"),
+        api_keys_used: api_keys_row.get::<i64, _>("total_keys"),
+        model_configs_used: models_row.get::<i64, _>("total_models"),
+        threats_blocked: guard_row.get::<i64, _>("threats_blocked"),
+        avg_latency_ms: guard_row.get::<i64, _>("avg_latency"),
+        billing_period_start: period_start,
+        billing_period_end: period_end,
+    }))
 }

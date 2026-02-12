@@ -29,12 +29,12 @@ const Footer = () => {
             © 2026 • Orafinite
           </p>
         </div>
-        <p className=" text-[54px] md:text-[80px] font-thin text-stone-800 opacity-20 leading-120 md:leading-24 slashed-zero font-mono">
+        {/*<p className=" text-[54px] md:text-[80px] font-thin text-stone-800 opacity-20 leading-120 md:leading-24 slashed-zero font-mono">
           42,000,451
-        </p>
+        </p>*/}
       </div>
       <div className="text-center">
-        <p className="text-neutral-500">
+        {/*<p className="text-neutral-500">
           Designed and developed by{" "}
           <Link
             target="_blank"
@@ -43,7 +43,7 @@ const Footer = () => {
           >
             Admin12121
           </Link>
-        </p>
+        </p>*/}
       </div>
     </footer>
   );

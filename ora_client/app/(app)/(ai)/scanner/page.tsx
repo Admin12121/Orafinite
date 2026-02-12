@@ -603,7 +603,7 @@ export default function ScannerPage() {
     <section className="px-4 py-6 w-full flex flex-col gap-10">
       <div>
         <h1 className="text-xl font-bold">Garak Scanner</h1>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-stone-500">
           Run vulnerability scans against your LLM models using Garak probes
         </p>
       </div>
@@ -620,7 +620,7 @@ export default function ScannerPage() {
           <span className="flex-1 h-px bg-stone-200"></span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
           {/* Model Source Toggle */}
           <div className="flex gap-2 mb-6">
             <Button
@@ -711,7 +711,7 @@ export default function ScannerPage() {
                         </p>
                         <p className="text-stone-400">
                           <span className="text-stone-500">Template:</span>{" "}
-                          <code className="text-stone-300">
+                          <code className="text-stone-700">
                             {(s?.request_template as string) ||
                               '{"prompt": "{{prompt}}"}'}
                           </code>
@@ -890,7 +890,7 @@ export default function ScannerPage() {
 
               {/* Custom Endpoint Configuration */}
               {form.provider === "custom" && (
-                <div className="mt-2 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl space-y-4">
+                <div className="mt-2 p-4 bg-stone-100 border border-stone-300 rounded-xl space-y-4">
                   <div className="flex items-center gap-2 mb-1">
                     <IconSettings className="w-4 h-4 text-blue-400" />
                     <span className="text-sm font-semibold text-blue-400">
@@ -1002,7 +1002,7 @@ export default function ScannerPage() {
           )}
 
           {/* ─── Probe Picker ─── */}
-          <div className="mt-6 border-t border-zinc-800 pt-6">
+          <div className="mt-6 border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <IconFilter className="w-4 h-4 text-stone-400" />
@@ -1055,12 +1055,12 @@ export default function ScannerPage() {
                 return (
                   <div
                     key={category.id}
-                    className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl overflow-hidden"
+                    className="bg-stone-100 border border-stone-300 rounded-xl overflow-hidden"
                   >
                     {/* Category Header */}
                     <button
                       onClick={() => toggleCategory(category.id)}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-700/30 transition-colors"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-stone-200/30 transition-colors"
                     >
                       <span className="text-stone-400">
                         {CATEGORY_ICONS[category.id] || (
@@ -1079,7 +1079,7 @@ export default function ScannerPage() {
                         className={`text-xs px-2 py-0.5 rounded font-mono ${
                           enabledCount > 0
                             ? "bg-blue-500/20 text-blue-400"
-                            : "bg-zinc-700 text-stone-500"
+                            : "bg-stone-200 text-stone-500"
                         }`}
                       >
                         {enabledCount}/{catProbes.length}
@@ -1092,7 +1092,7 @@ export default function ScannerPage() {
                         className={`text-xs px-2 py-0.5 rounded border ${
                           enabledCount === catProbes.length
                             ? "border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
-                            : "border-zinc-600 text-stone-500 hover:bg-zinc-700"
+                            : "border-stone-300 text-stone-500 hover:bg-stone-200"
                         }`}
                       >
                         {enabledCount === catProbes.length
@@ -1108,11 +1108,11 @@ export default function ScannerPage() {
 
                     {/* Probe List (expanded) */}
                     {isExpanded && (
-                      <div className="border-t border-zinc-700/50">
+                      <div className="border-t border-stone-300">
                         {catProbes.map((probe) => (
                           <div
                             key={probe.id}
-                            className={`flex items-start gap-3 px-4 py-3 border-b border-zinc-800/50 last:border-0 hover:bg-zinc-700/20 transition-colors ${
+                            className={`flex items-start gap-3 px-4 py-3 border-b border-stone-200 last:border-0 hover:bg-stone-200/20 transition-colors ${
                               !probe.available ? "opacity-50" : ""
                             }`}
                           >
@@ -1123,7 +1123,7 @@ export default function ScannerPage() {
                               className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
                                 selectedProbes[probe.id]
                                   ? "bg-blue-500 border-blue-500"
-                                  : "border-zinc-600 hover:border-zinc-500"
+                                  : "border-stone-300 hover:border-stone-400"
                               } ${!probe.available ? "cursor-not-allowed" : "cursor-pointer"}`}
                             >
                               {selectedProbes[probe.id] && (
@@ -1155,7 +1155,7 @@ export default function ScannerPage() {
                                 {probe.tags.map((tag) => (
                                   <span
                                     key={tag}
-                                    className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-stone-600 font-mono"
+                                    className="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 font-mono"
                                   >
                                     {tag}
                                   </span>
@@ -1188,7 +1188,7 @@ export default function ScannerPage() {
             </button>
 
             {showAdvanced && (
-              <div className="mt-3 p-4 bg-zinc-800/30 border border-zinc-700/50 rounded-xl">
+              <div className="mt-3 p-4 bg-stone-100 border border-stone-300 rounded-xl">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Max Prompts per Probe</Label>
@@ -1325,7 +1325,7 @@ export default function ScannerPage() {
           </Button>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl overflow-hidden">
           {isLoading ? (
             <div className="p-8 text-center text-stone-500">
               <IconLoader2 className="w-8 h-8 mx-auto mb-4 animate-spin" />
@@ -1341,7 +1341,7 @@ export default function ScannerPage() {
             </div>
           ) : (
             <table className="w-full">
-              <thead className="border-b border-zinc-800">
+              <thead className="border-b border-stone-200">
                 <tr className="text-left text-xs font-mono uppercase text-stone-500">
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Type</th>
@@ -1356,7 +1356,7 @@ export default function ScannerPage() {
                 {scans.map((scan) => (
                   <tr
                     key={scan.id}
-                    className="border-b border-zinc-800 last:border-0 hover:bg-zinc-800/50"
+                    className="border-b border-stone-200 last:border-0 hover:bg-stone-100"
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -1371,7 +1371,7 @@ export default function ScannerPage() {
                     <td className="px-4 py-3 capitalize">{scan.scanType}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-24 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="w-24 h-2 bg-stone-100 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500 transition-all duration-300"
                             style={{ width: `${scan.progress}%` }}
@@ -1468,7 +1468,7 @@ export default function ScannerPage() {
         </div>
 
         {/* ─── Info Section ─── */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <div className="bg-stone-50 border border-stone-200 rounded-2xl p-6">
           <h3 className="font-semibold mb-4 flex items-center gap-2">
             <IconInfoCircle className="w-4 h-4" />
             About Garak Vulnerability Scanner
@@ -1487,55 +1487,55 @@ export default function ScannerPage() {
             vulnerability testing of large language models.
           </p>
           <div className="grid grid-cols-3 gap-4 text-sm">
-            <div className="p-3 bg-zinc-800 rounded-lg">
+            <div className="p-3 bg-stone-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <IconAlertOctagon className="w-4 h-4 text-red-400" />
-                <p className="font-medium text-stone-200">Prompt Injection</p>
+                <p className="font-medium text-stone-800">Prompt Injection</p>
               </div>
               <p className="text-xs text-stone-500">
                 Tests for attempts to override system instructions
               </p>
             </div>
-            <div className="p-3 bg-zinc-800 rounded-lg">
+            <div className="p-3 bg-stone-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <IconLock className="w-4 h-4 text-orange-400" />
-                <p className="font-medium text-stone-200">Jailbreaking</p>
+                <p className="font-medium text-stone-800">Jailbreaking</p>
               </div>
               <p className="text-xs text-stone-500">
                 Detects attempts to bypass safety guardrails
               </p>
             </div>
-            <div className="p-3 bg-zinc-800 rounded-lg">
+            <div className="p-3 bg-stone-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <IconDatabase className="w-4 h-4 text-yellow-400" />
-                <p className="font-medium text-stone-200">Data Leakage</p>
+                <p className="font-medium text-stone-800">Data Leakage</p>
               </div>
               <p className="text-xs text-stone-500">
                 Checks for training data extraction vulnerabilities
               </p>
             </div>
-            <div className="p-3 bg-zinc-800 rounded-lg">
+            <div className="p-3 bg-stone-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <IconAlertTriangle className="w-4 h-4 text-orange-300" />
-                <p className="font-medium text-stone-200">Toxicity</p>
+                <p className="font-medium text-stone-800">Toxicity</p>
               </div>
               <p className="text-xs text-stone-500">
                 Tests for harmful, toxic, and policy-violating output
               </p>
             </div>
-            <div className="p-3 bg-zinc-800 rounded-lg">
+            <div className="p-3 bg-stone-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <IconGhost className="w-4 h-4 text-purple-400" />
-                <p className="font-medium text-stone-200">Hallucination</p>
+                <p className="font-medium text-stone-800">Hallucination</p>
               </div>
               <p className="text-xs text-stone-500">
                 Checks for fabricated facts and false claims
               </p>
             </div>
-            <div className="p-3 bg-zinc-800 rounded-lg">
+            <div className="p-3 bg-stone-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <IconBug className="w-4 h-4 text-red-300" />
-                <p className="font-medium text-stone-200">Malware</p>
+                <p className="font-medium text-stone-800">Malware</p>
               </div>
               <p className="text-xs text-stone-500">
                 Tests for malicious code generation
