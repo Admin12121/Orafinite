@@ -14,22 +14,29 @@
 // receives events for their organization.
 //
 // NOTE: The browser's EventSource API does NOT support custom headers.
-// Therefore this endpoint accepts the session token from:
+// Therefore this endpoint accepts auth from:
 //   1. `Authorization: Bearer <token>` header (for non-browser clients)
-//   2. `?token=<token>` query parameter (for browser EventSource)
+//   2. `?ticket=<ticket>` query parameter — a short-lived, single-use ticket
+//      obtained via `POST /v1/guard/events/ticket` (for browser EventSource)
 //   3. `better-auth.session_token` cookie (for same-origin browser requests)
+//
+// SECURITY: Raw session tokens are NEVER accepted via query parameters.
+// The `?ticket=` mechanism uses a one-time, 30-second Redis-backed ticket
+// that is deleted on first use, preventing token leakage through URLs,
+// logs, Referer headers, browser history, and proxy/CDN logs.
 
 use axum::{
+    Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{
-        sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
     },
-    Json,
 };
 use futures::stream::Stream;
-use serde::Deserialize;
+use redis::AsyncCommands;
+use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -38,7 +45,14 @@ use uuid::Uuid;
 
 use super::AppState;
 use crate::db::write_buffer::GuardLogEvent;
-use crate::middleware::{require_session_from_headers, ErrorResponse};
+use crate::middleware::{ErrorResponse, require_session_from_headers};
+
+/// TTL for SSE tickets in seconds. Tickets expire after this duration
+/// even if not redeemed.
+const SSE_TICKET_TTL_SECS: u64 = 30;
+
+/// Redis key prefix for SSE tickets.
+const SSE_TICKET_PREFIX: &str = "sse_ticket:";
 
 // ============================================
 // SSE Stream wrapper
@@ -62,28 +76,49 @@ impl Stream for GuardEventStream {
 }
 
 // ============================================
-// SSE Query Params (for token-based auth fallback)
+// SSE Query Params
 // ============================================
 
 #[derive(Debug, Deserialize, Default)]
 pub struct SseQueryParams {
-    /// Session token passed as query param (fallback for EventSource which
-    /// cannot set custom headers).
-    pub token: Option<String>,
+    /// A short-lived, single-use ticket obtained from `POST /v1/guard/events/ticket`.
+    /// This replaces the old `?token=` parameter to avoid leaking session tokens in URLs.
+    pub ticket: Option<String>,
 }
 
 // ============================================
-// Helper: extract session token from multiple sources
+// Ticket types
+// ============================================
+
+/// Payload stored in Redis for an SSE ticket.
+#[derive(Debug, Serialize, Deserialize)]
+struct SseTicketPayload {
+    user_id: String,
+    email: String,
+    name: Option<String>,
+    session_id: String,
+}
+
+/// Response body for the ticket creation endpoint.
+#[derive(Debug, Serialize)]
+pub struct SseTicketResponse {
+    /// The one-time ticket to pass as `?ticket=` when connecting to the SSE endpoint.
+    pub ticket: String,
+    /// Number of seconds until the ticket expires.
+    pub expires_in: u64,
+}
+
+// ============================================
+// Helper: extract session token from header or cookie (NOT query params)
 // ============================================
 
 /// Try to extract the session token from (in priority order):
 /// 1. `Authorization: Bearer <token>` header
-/// 2. `?token=<token>` query parameter
-/// 3. `better-auth.session_token` cookie
-fn extract_session_token<'a>(
-    headers: &'a HeaderMap,
-    query_token: Option<&'a str>,
-) -> Option<&'a str> {
+/// 2. `better-auth.session_token` cookie
+///
+/// NOTE: Query parameters are intentionally excluded here. Session tokens
+/// must never appear in URLs. Use the `?ticket=` mechanism instead.
+fn extract_session_token_from_headers<'a>(headers: &'a HeaderMap) -> Option<&'a str> {
     // 1. Authorization header
     if let Some(auth) = headers
         .get("authorization")
@@ -95,22 +130,13 @@ fn extract_session_token<'a>(
         }
     }
 
-    // 2. Query parameter
-    if let Some(token) = query_token {
-        if !token.is_empty() {
-            return Some(token);
-        }
-    }
-
-    // 3. Cookie: better-auth.session_token
+    // 2. Cookie: better-auth.session_token
     if let Some(cookie_header) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
         for part in cookie_header.split(';') {
             let part = part.trim();
             if let Some(value) = part.strip_prefix("better-auth.session_token=") {
                 let value = value.trim();
                 if !value.is_empty() {
-                    // The cookie value may be URL-encoded; for session tokens
-                    // this is typically not needed, but we handle it just in case.
                     return Some(value);
                 }
             }
@@ -118,6 +144,38 @@ fn extract_session_token<'a>(
     }
 
     None
+}
+
+// ============================================
+// Helper: redeem a one-time SSE ticket from Redis
+// ============================================
+
+/// Attempt to redeem a one-time SSE ticket. If the ticket is valid and has not
+/// been used before, returns the authenticated user info and atomically deletes
+/// the ticket from Redis so it cannot be reused.
+async fn redeem_sse_ticket(
+    redis: &mut redis::aio::ConnectionManager,
+    ticket: &str,
+) -> Option<crate::middleware::auth::AuthenticatedUser> {
+    let key = format!("{}{}", SSE_TICKET_PREFIX, ticket);
+
+    // Atomically GET and DELETE to ensure single-use
+    let payload: Option<String> = redis::cmd("GETDEL")
+        .arg(&key)
+        .query_async(redis)
+        .await
+        .ok()?;
+
+    let payload = payload?;
+
+    let ticket_data: SseTicketPayload = serde_json::from_str(&payload).ok()?;
+
+    Some(crate::middleware::auth::AuthenticatedUser {
+        user_id: ticket_data.user_id,
+        email: ticket_data.email,
+        name: ticket_data.name,
+        session_id: ticket_data.session_id,
+    })
 }
 
 /// Validate a session token against the database and return the authenticated user.
@@ -158,11 +216,11 @@ async fn validate_session_token(
                 "SESSION_INVALID",
             )),
         )),
-        Err(e) => Err((
+        Err(_e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new(
-                format!("Database error: {}", e),
-                "DB_ERROR",
+                "Authentication service unavailable",
+                "AUTH_ERROR",
             )),
         )),
     }
@@ -182,12 +240,12 @@ async fn get_user_org_id(
     .bind(user_id)
     .fetch_optional(db)
     .await
-    .map_err(|e| {
+    .map_err(|_e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new(
-                format!("Database error: {}", e),
-                "DB_ERROR",
+                "Organization lookup unavailable",
+                "ORG_ERROR",
             )),
         )
     })?;
@@ -205,6 +263,107 @@ async fn get_user_org_id(
 }
 
 // ============================================
+// Ticket Creation Endpoint
+// ============================================
+
+/// Create a short-lived, single-use SSE ticket.
+///
+/// **Auth: Session Required** (via Authorization header or cookie)
+///
+/// Returns a ticket that can be used exactly once within 30 seconds
+/// to authenticate an SSE `EventSource` connection via `?ticket=<ticket>`.
+///
+/// This replaces the insecure pattern of passing raw session tokens
+/// as query parameters, which would leak them into logs, browser
+/// history, Referer headers, and proxy/CDN logs.
+///
+/// ## Request
+/// ```text
+/// POST /v1/guard/events/ticket
+/// Authorization: Bearer <session_token>
+/// ```
+///
+/// ## Response
+/// ```json
+/// {
+///   "ticket": "a1b2c3d4-e5f6-...",
+///   "expires_in": 30
+/// }
+/// ```
+///
+/// ## Usage
+/// ```js
+/// // 1. Obtain a ticket (session cookie sent automatically)
+/// const res = await fetch('/v1/guard/events/ticket', { method: 'POST', credentials: 'include' });
+/// const { ticket } = await res.json();
+///
+/// // 2. Connect SSE with the one-time ticket (NOT the session token)
+/// const es = new EventSource(`/v1/guard/events?ticket=${ticket}`, { withCredentials: true });
+/// ```
+pub async fn create_sse_ticket(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<SseTicketResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Authenticate the user via header or cookie — NOT query params
+    let token = extract_session_token_from_headers(&headers).ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new(
+                "Session token required. Use Authorization header or session cookie.",
+                "SESSION_REQUIRED",
+            )),
+        )
+    })?;
+
+    let user = validate_session_token(&state.db, token).await?;
+
+    // Generate a cryptographically random ticket ID
+    let ticket = Uuid::new_v4().to_string();
+
+    // Store ticket payload in Redis with TTL
+    let payload = SseTicketPayload {
+        user_id: user.user_id,
+        email: user.email,
+        name: user.name,
+        session_id: user.session_id,
+    };
+
+    let payload_json = serde_json::to_string(&payload).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Failed to create ticket",
+                "TICKET_ERROR",
+            )),
+        )
+    })?;
+
+    let key = format!("{}{}", SSE_TICKET_PREFIX, ticket);
+    let mut redis = state.redis.clone();
+
+    redis
+        .set_ex::<_, _, ()>(&key, &payload_json, SSE_TICKET_TTL_SECS)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to store ticket", "TICKET_ERROR")),
+            )
+        })?;
+
+    tracing::debug!(
+        "SSE ticket created for user={}, expires in {}s",
+        payload.user_id,
+        SSE_TICKET_TTL_SECS
+    );
+
+    Ok(Json(SseTicketResponse {
+        ticket,
+        expires_in: SSE_TICKET_TTL_SECS,
+    }))
+}
+
+// ============================================
 // SSE Handler
 // ============================================
 
@@ -212,12 +371,16 @@ async fn get_user_org_id(
 ///
 /// **Auth: Session Required**
 ///
-/// Accepts session token from multiple sources (since EventSource API
+/// Accepts authentication from multiple sources (since EventSource API
 /// cannot set custom headers):
 ///
 /// 1. `Authorization: Bearer <token>` header (non-browser clients)
-/// 2. `?token=<token>` query parameter (browser EventSource)
+/// 2. `?ticket=<ticket>` — a short-lived, single-use ticket obtained
+///    from `POST /v1/guard/events/ticket` (browser EventSource)
 /// 3. `better-auth.session_token` cookie (same-origin browser requests)
+///
+/// **SECURITY:** Raw session tokens are NOT accepted via query parameters.
+/// Use the ticket mechanism for EventSource connections.
 ///
 /// Events are filtered to only show entries for the authenticated user's organization.
 ///
@@ -231,37 +394,61 @@ async fn get_user_org_id(
 /// // Option A: cookie-based (same-origin, automatic)
 /// const es = new EventSource('/v1/guard/events', { withCredentials: true });
 ///
-/// // Option B: query param (cross-origin or when cookies unavailable)
-/// const es = new EventSource('/v1/guard/events?token=SESSION_TOKEN');
+/// // Option B: one-time ticket (recommended for cross-origin or cookie issues)
+/// const res = await fetch('/v1/guard/events/ticket', { method: 'POST', credentials: 'include' });
+/// const { ticket } = await res.json();
+/// const es = new EventSource(`/v1/guard/events?ticket=${ticket}`, { withCredentials: true });
 /// ```
 pub async fn guard_events(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<SseQueryParams>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    // Authenticate user — try header, then query param, then cookie
-    let token = extract_session_token(&headers, query.token.as_deref());
-
-    let user = match token {
-        Some(t) => validate_session_token(&state.db, t).await?,
-        None => {
-            // Last resort: try the standard require_session_from_headers
-            // which only checks the Authorization header
-            require_session_from_headers(&state.db, &headers)
-                .await
-                .map_err(|(status, json)| {
-                    (
-                        status,
-                        Json(ErrorResponse::new(
-                            format!(
-                                "{}. For SSE connections, pass token via ?token= query parameter or cookie.",
-                                json.error
-                            ),
-                            json.code.clone(),
-                        )),
-                    )
-                })?
+    // Authenticate user — try header/cookie first, then one-time ticket
+    let user = if let Some(token) = extract_session_token_from_headers(&headers) {
+        // Auth via header or cookie — direct session validation
+        validate_session_token(&state.db, token).await?
+    } else if let Some(ref ticket) = query.ticket {
+        // Auth via one-time ticket — redeem from Redis (atomic get+delete)
+        if ticket.is_empty() {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new(
+                    "Empty ticket provided",
+                    "TICKET_INVALID",
+                )),
+            ));
         }
+
+        let mut redis = state.redis.clone();
+        redeem_sse_ticket(&mut redis, ticket).await.ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new(
+                    "Invalid, expired, or already-used ticket. \
+                     Obtain a new ticket via POST /v1/guard/events/ticket.",
+                    "TICKET_INVALID",
+                )),
+            )
+        })?
+    } else {
+        // Last resort: try the standard require_session_from_headers
+        // which only checks the Authorization header
+        require_session_from_headers(&state.db, &headers)
+            .await
+            .map_err(|(status, json)| {
+                (
+                    status,
+                    Json(ErrorResponse::new(
+                        format!(
+                            "{}. For SSE connections, obtain a ticket via POST /v1/guard/events/ticket \
+                             and pass it as ?ticket= query parameter, or use cookie-based auth.",
+                            json.error
+                        ),
+                        json.code.clone(),
+                    )),
+                )
+            })?
     };
 
     let org_id = get_user_org_id(&state.db, &user.user_id).await?;

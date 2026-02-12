@@ -7,7 +7,6 @@ import {
   useRef,
   type MutableRefObject,
 } from "react";
-import { authClient } from "@/lib/auth-client";
 
 // ============================================
 // Types
@@ -179,23 +178,37 @@ export function useGuardEvents(
     // 1. The `better-auth.session_token` cookie is sent automatically
     //    for same-origin requests (handled by nginx proxy).
     //
-    // 2. As a fallback, we fetch the session token from Better Auth's
-    //    client-side API and pass it as a `?token=` query parameter.
-    //    This handles cases where cookies aren't available (e.g. some
-    //    cross-origin setups or when the cookie name differs).
+    // 2. As a fallback, we obtain a short-lived, single-use ticket
+    //    from `POST /v1/guard/events/ticket` and pass it as
+    //    `?ticket=<ticket>`. This avoids leaking the real session
+    //    token in URLs, logs, Referer headers, or browser history.
 
     let url = `/v1/guard/events`;
 
-    // Try to get session token for query-param fallback
+    // Obtain a one-time SSE ticket (NOT the raw session token)
     try {
-      const session = await authClient.getSession();
-      if (session?.data?.session?.token) {
-        url += `?token=${encodeURIComponent(session.data.session.token)}`;
+      const res = await fetch("/v1/guard/events/ticket", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          ticket: string;
+          expires_in: number;
+        };
+        if (data.ticket) {
+          url += `?ticket=${encodeURIComponent(data.ticket)}`;
+        }
+      } else {
+        // Cookie-based auth will be used as fallback
+        console.debug(
+          "[useGuardEvents] Could not obtain SSE ticket, relying on cookie auth",
+        );
       }
     } catch {
       // Cookie-based auth will be used as fallback
       console.debug(
-        "[useGuardEvents] Could not fetch session token, relying on cookie auth",
+        "[useGuardEvents] Could not obtain SSE ticket, relying on cookie auth",
       );
     }
 

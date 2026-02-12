@@ -1,6 +1,6 @@
 use axum::{
-    routing::{delete, get, post, put},
     Router,
+    routing::{delete, get, post, put},
 };
 
 use super::AppState;
@@ -63,6 +63,7 @@ pub fn v1_routes() -> Router<AppState> {
         // ========================================
         // Guard Events: SSE real-time stream
         // ========================================
+        .route("/guard/events/ticket", post(events::create_sse_ticket))
         .route("/guard/events", get(events::guard_events))
         // ========================================
         // Garak Scanner: Session auth (users)

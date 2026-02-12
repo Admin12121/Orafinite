@@ -33,7 +33,7 @@ import {
   SCANNER_META,
   type InputScannerName,
   type OutputScannerName,
-} from "@/lib/api";
+} from "@/lib/scanner-meta";
 
 // ============================================
 // Types

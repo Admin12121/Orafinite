@@ -55,7 +55,7 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
             raise SystemExit(1)
 
         gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         logger.info(f"✅ NVIDIA GPU detected: {gpu_name} ({gpu_mem:.1f} GB)")
 
         # Initialize LLM Guard scanner on CUDA — NO CPU FALLBACK
