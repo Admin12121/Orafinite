@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   IconRadar,
   IconPlayerPlay,
@@ -45,7 +45,9 @@ import {
   listScans,
   getScanStatus,
   listProbes,
+  cancelScan,
 } from "@/lib/actions/scans";
+import { IconPlayerStop } from "@tabler/icons-react";
 import type { ProbeListResult } from "@/lib/actions/scans";
 import { listModelConfigs, type ModelConfig } from "@/lib/actions/models";
 import type {
@@ -149,6 +151,7 @@ export default function ScannerPage() {
   const [scans, setScans] = useState<ScanDisplay[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [isStarting, setIsStarting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [monitoringScanId, setMonitoringScanId] = useState<string | null>(null);
@@ -202,10 +205,12 @@ export default function ScannerPage() {
     loadProbes();
   }, []);
 
-  // Poll running scans for status updates
+  // Poll running scans for status updates (skip the one the live monitor handles)
   useEffect(() => {
     const runningScans = scans.filter(
-      (s) => s.status === "running" || s.status === "pending",
+      (s) =>
+        (s.status === "running" || s.status === "pending") &&
+        s.id !== monitoringScanId,
     );
     if (runningScans.length === 0) return;
 
@@ -230,7 +235,33 @@ export default function ScannerPage() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [scans]);
+  }, [scans, monitoringScanId]);
+
+  // Callback: live monitor feeds its real-time data back into the scan history row
+  const handleLiveProgress = useCallback(
+    (liveProgress: {
+      status: string;
+      progress: number;
+      probesCompleted: number;
+      probesTotal: number;
+      vulnerabilitiesFound: number;
+    }) => {
+      if (!monitoringScanId) return;
+      setScans((prev) =>
+        prev.map((s) =>
+          s.id === monitoringScanId
+            ? {
+                ...s,
+                status: liveProgress.status,
+                progress: liveProgress.progress,
+                vulnerabilitiesFound: liveProgress.vulnerabilitiesFound,
+              }
+            : s,
+        ),
+      );
+    },
+    [monitoringScanId],
+  );
 
   // When scan type changes, update selected probes
   useEffect(() => {
@@ -500,12 +531,40 @@ export default function ScannerPage() {
     }
   };
 
+  const handleCancelScan = async (scanId: string) => {
+    setIsCancelling(scanId);
+    try {
+      const result = await cancelScan(scanId);
+      if ("error" in result) {
+        setError(result.error);
+      } else {
+        // Update local state to reflect cancellation
+        setScans((prev) =>
+          prev.map((s) =>
+            s.id === scanId
+              ? { ...s, status: "cancelled", progress: s.progress }
+              : s,
+          ),
+        );
+        if (monitoringScanId === scanId) {
+          setMonitoringScanId(null);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to cancel scan");
+    } finally {
+      setIsCancelling(null);
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "completed":
         return <IconCheck className="w-4 h-4 text-lime-500" />;
       case "failed":
         return <IconX className="w-4 h-4 text-red-500" />;
+      case "cancelled":
+        return <IconPlayerStop className="w-4 h-4 text-orange-400" />;
       case "running":
         return <IconLoader2 className="w-4 h-4 text-blue-500 animate-spin" />;
       case "pending":
@@ -528,8 +587,10 @@ export default function ScannerPage() {
     const colors: Record<string, string> = {
       completed: "bg-lime-500/20 text-lime-400",
       failed: "bg-red-500/20 text-red-400",
+      cancelled: "bg-orange-500/20 text-orange-400",
       running: "bg-blue-500/20 text-blue-400",
       pending: "bg-yellow-500/20 text-yellow-400",
+      queued: "bg-stone-500/20 text-stone-400",
     };
     return colors[status] || "bg-stone-500/20 text-stone-400";
   };
@@ -1213,6 +1274,25 @@ export default function ScannerPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                className="h-6 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                onClick={() => handleCancelScan(monitoringScanId)}
+                disabled={isCancelling === monitoringScanId}
+              >
+                {isCancelling === monitoringScanId ? (
+                  <>
+                    <IconLoader2 className="w-3 h-3 mr-1 animate-spin" />
+                    Cancelling...
+                  </>
+                ) : (
+                  <>
+                    <IconPlayerStop className="w-3 h-3 mr-1" />
+                    Stop Scan
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 className="h-6 text-xs text-stone-500"
                 onClick={() => setMonitoringScanId(null)}
               >
@@ -1222,6 +1302,7 @@ export default function ScannerPage() {
             </div>
             <LiveScanMonitor
               scanId={monitoringScanId}
+              onProgress={handleLiveProgress}
               onComplete={() => {
                 loadData();
               }}
@@ -1323,29 +1404,48 @@ export default function ScannerPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         {(scan.status === "running" ||
-                          scan.status === "pending") && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-blue-400 h-7 text-xs"
-                            onClick={() =>
-                              setMonitoringScanId(
-                                monitoringScanId === scan.id ? null : scan.id,
-                              )
-                            }
-                          >
-                            {monitoringScanId === scan.id ? (
-                              <>
-                                <IconEyeOff className="w-3 h-3 mr-1" />
-                                Hide
-                              </>
-                            ) : (
-                              <>
-                                <IconEye className="w-3 h-3 mr-1" />
-                                Monitor
-                              </>
-                            )}
-                          </Button>
+                          scan.status === "pending" ||
+                          scan.status === "queued") && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-blue-400 h-7 text-xs"
+                              onClick={() =>
+                                setMonitoringScanId(
+                                  monitoringScanId === scan.id ? null : scan.id,
+                                )
+                              }
+                            >
+                              {monitoringScanId === scan.id ? (
+                                <>
+                                  <IconEyeOff className="w-3 h-3 mr-1" />
+                                  Hide
+                                </>
+                              ) : (
+                                <>
+                                  <IconEye className="w-3 h-3 mr-1" />
+                                  Monitor
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 text-xs"
+                              onClick={() => handleCancelScan(scan.id)}
+                              disabled={isCancelling === scan.id}
+                            >
+                              {isCancelling === scan.id ? (
+                                <IconLoader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <IconPlayerStop className="w-3 h-3 mr-1" />
+                                  Stop
+                                </>
+                              )}
+                            </Button>
+                          </>
                         )}
                         {scan.status === "completed" && (
                           <Link href={`/reports?scan=${scan.id}`}>

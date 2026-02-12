@@ -686,6 +686,12 @@ export const guardApi = {
     ),
 };
 
+export interface CancelScanResponse {
+  scan_id: string;
+  status: string;
+  message: string;
+}
+
 export const scanApi = {
   startScan: (data: StartScanRequest) =>
     api.post<StartScanResponse>("/v1/scan/start", data),
@@ -702,6 +708,8 @@ export const scanApi = {
     api.post<RetestResponse>("/v1/scan/retest", data),
   getScanLogs: (scanId: string) =>
     api.get<ScanLogsResponse>(`/v1/scan/${scanId}/logs`),
+  cancelScan: (scanId: string) =>
+    api.post<CancelScanResponse>(`/v1/scan/${scanId}/cancel`),
 };
 
 export const apiKeysApi = {
@@ -719,10 +727,23 @@ export const apiKeysApi = {
     ),
 };
 
+export interface UpdateModelConfigRequest {
+  name?: string;
+  provider?: string;
+  model?: string;
+  api_key?: string;
+  base_url?: string;
+  settings?: Record<string, unknown>;
+  clear_api_key?: boolean;
+  clear_base_url?: boolean;
+}
+
 export const modelsApi = {
   create: (data: CreateModelConfigRequest) =>
     api.post<ModelConfigItem>("/v1/models", data),
   list: () => api.get<ListModelConfigsResponse>("/v1/models"),
+  update: (modelId: string, data: UpdateModelConfigRequest) =>
+    api.put<ModelConfigItem>(`/v1/models/${modelId}`, data),
   delete: (modelId: string) =>
     api.delete<DeleteResponse>(`/v1/models/${modelId}`),
   setDefault: (modelId: string) =>

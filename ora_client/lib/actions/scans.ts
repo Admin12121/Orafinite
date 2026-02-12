@@ -1,11 +1,11 @@
 "use server";
 
-import { scanApi } from "@/lib/api";
 import type {
   CustomEndpointConfig,
   GarakProbeInfo,
   GarakProbeCategory,
 } from "@/lib/api";
+import { scanApi } from "@/lib/api";
 
 export interface Scan {
   id: string;
@@ -153,6 +153,25 @@ export async function startScan(input: StartScanInput): Promise<
     scanId: data.scan_id,
     status: data.status,
     estimatedDuration: data.estimated_duration_seconds,
+  };
+}
+
+/**
+ * Cancel a running scan via Rust API
+ * Calls Rust API: POST /v1/scan/{scanId}/cancel
+ */
+export async function cancelScan(
+  scanId: string,
+): Promise<{ status: string; message: string } | { error: string }> {
+  const { data, error } = await scanApi.cancelScan(scanId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {
+    status: data.status,
+    message: data.message,
   };
 }
 

@@ -1,15 +1,14 @@
 "use client";
 
-// import { CircleOpenArrowRight, GithubIcon, Star } from "@/assets/icons";
-// import { PostHogAnalytics } from "@/components/ui/posthog-analytics";
 import { ScribbledArrowToRight } from "@/assets/svgs";
 import { Button } from "@/components/ui/button";
-// import NumberFlow from "@number-flow/react";
-// import { LINKS } from "@/constants/links";
-// import Image from "next/image";
 import Link from "next/link";
 
-const Hero = () => {
+interface HeroProps {
+  isLoading?: boolean;
+}
+
+const Hero = ({ isLoading = true }: HeroProps) => {
   return (
     <div className="relative flex h-[calc(70svh-64px-150px)] flex-row items-center overflow-hidden border-b border-dashed">
       <div className="z-10 flex flex-col gap-4">

@@ -47,6 +47,7 @@ interface ScanProgress {
 interface LiveScanMonitorProps {
   scanId: string;
   onComplete?: () => void;
+  onProgress?: (progress: ScanProgress) => void;
 }
 
 // ============================================
@@ -125,6 +126,7 @@ function formatDuration(ms: number | null): string {
 export default function LiveScanMonitor({
   scanId,
   onComplete,
+  onProgress,
 }: LiveScanMonitorProps) {
   const [progress, setProgress] = useState<ScanProgress>({
     status: "queued",
@@ -162,13 +164,15 @@ export default function LiveScanMonitor({
         const result = await getScanStatus(scanId);
         if ("error" in result) return;
 
-        setProgress({
+        const newProgress: ScanProgress = {
           status: result.status,
           progress: result.progress,
           probesCompleted: result.probesCompleted,
           probesTotal: result.probesTotal,
           vulnerabilitiesFound: result.vulnerabilitiesFound,
-        });
+        };
+        setProgress(newProgress);
+        onProgress?.(newProgress);
 
         if (
           result.status === "completed" ||
@@ -192,7 +196,7 @@ export default function LiveScanMonitor({
 
     poll(); // Immediate first poll
     pollIntervalRef.current = setInterval(poll, 2000);
-  }, [scanId, onComplete]);
+  }, [scanId, onComplete, onProgress]);
 
   // Attempt SSE connection, fall back to polling
   const connectSSE = useCallback(() => {
@@ -212,13 +216,15 @@ export default function LiveScanMonitor({
         es.addEventListener("progress", (e) => {
           try {
             const data = JSON.parse(e.data);
-            setProgress({
+            const newProgress: ScanProgress = {
               status: data.status,
               progress: data.progress,
               probesCompleted: data.probes_completed,
               probesTotal: data.probes_total,
               vulnerabilitiesFound: data.vulnerabilities_found,
-            });
+            };
+            setProgress(newProgress);
+            onProgress?.(newProgress);
           } catch {
             // ignore parse errors
           }
@@ -298,7 +304,7 @@ export default function LiveScanMonitor({
 
     // Fall back to polling
     startPolling();
-  }, [scanId, onComplete, startPolling]);
+  }, [scanId, onComplete, onProgress, startPolling]);
 
   // Fetch probe logs periodically (from DB via server action)
   useEffect(() => {

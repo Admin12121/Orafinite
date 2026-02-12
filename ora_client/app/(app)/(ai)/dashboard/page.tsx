@@ -1,5 +1,6 @@
 import Analytics from "./_components";
 import Initial_setup from "./_components/initial_setup";
+import GarakSummary from "./_components/garak-summary";
 
 export default function page() {
   return (
@@ -13,6 +14,7 @@ export default function page() {
       </div>
       <Initial_setup />
       <Analytics />
+      <GarakSummary />
     </section>
   );
 }

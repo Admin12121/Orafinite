@@ -8,6 +8,8 @@ import {
   IconStar,
   IconStarFilled,
   IconInfoCircle,
+  IconEdit,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +40,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   createModelConfig,
+  updateModelConfig,
   listModelConfigs,
   deleteModelConfig,
   setDefaultModel,
@@ -150,8 +153,27 @@ export default function ModelsPage() {
     httpMethod: "POST",
   });
 
+  // Edit state
+  const [editingModel, setEditingModel] = useState<ModelDisplay | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    provider: "",
+    model: "",
+    apiKey: "",
+    baseUrl: "",
+    requestTemplate: '{"prompt": "{{prompt}}"}',
+    responsePath: "response",
+    httpMethod: "POST",
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+
   const isCustomProvider = form.provider === "custom";
+  const isEditCustomProvider = editForm.provider === "custom";
   const selectedProvider = PROVIDERS.find((p) => p.value === form.provider);
+  const selectedEditProvider = PROVIDERS.find(
+    (p) => p.value === editForm.provider,
+  );
 
   useEffect(() => {
     loadModels();
@@ -227,6 +249,64 @@ export default function ModelsPage() {
       console.error("Failed to create model:", err);
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const openEditForm = (model: ModelDisplay) => {
+    setEditingModel(model);
+    setEditError(null);
+    const s = model.settings as CustomEndpointSettings | null;
+    setEditForm({
+      name: model.name,
+      provider: model.provider,
+      model: model.model,
+      apiKey: "", // Don't populate — encrypted in DB
+      baseUrl: model.baseUrl || "",
+      requestTemplate: s?.request_template || '{"prompt": "{{prompt}}"}',
+      responsePath: s?.response_path || "response",
+      httpMethod: s?.method || "POST",
+    });
+  };
+
+  const handleUpdate = async () => {
+    if (!editingModel) return;
+    if (!editForm.name || !editForm.provider || !editForm.model) {
+      setEditError("Name, provider, and model are required");
+      return;
+    }
+    if (isEditCustomProvider && !editForm.baseUrl) {
+      setEditError("Base URL is required for custom providers");
+      return;
+    }
+    setIsUpdating(true);
+    setEditError(null);
+    try {
+      const settings: Record<string, unknown> | undefined = isEditCustomProvider
+        ? {
+            request_template:
+              editForm.requestTemplate || '{"prompt": "{{prompt}}"}',
+            response_path: editForm.responsePath || "response",
+            method: editForm.httpMethod || "POST",
+          }
+        : undefined;
+
+      await updateModelConfig(editingModel.id, {
+        name: editForm.name,
+        provider: editForm.provider,
+        model: editForm.model,
+        apiKey: editForm.apiKey || undefined,
+        baseUrl: editForm.baseUrl || undefined,
+        settings,
+        clearBaseUrl: !editForm.baseUrl && !isEditCustomProvider,
+      });
+      setEditingModel(null);
+      loadModels();
+    } catch (err) {
+      setEditError(
+        err instanceof Error ? err.message : "Failed to update model",
+      );
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -563,42 +643,284 @@ export default function ModelsPage() {
                       </div>
                     </div>
                   </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-400"
-                      >
-                        <IconTrash className="w-4 h-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          Delete Model Configuration?
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will remove the model configuration. Any scans
-                          using this model will fail.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => handleDelete(model.id)}
-                          className="bg-red-600 hover:bg-red-700"
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-stone-400 hover:text-stone-200"
+                      onClick={() => openEditForm(model)}
+                      title="Edit model"
+                    >
+                      <IconEdit className="w-4 h-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-400"
                         >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                          <IconTrash className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Delete Model Configuration?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will remove the model configuration. Any scans
+                            using this model will fail.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDelete(model.id)}
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* Edit Model Dialog */}
+        {editingModel && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <h2 className="text-lg font-semibold mb-4">
+                Edit Model: {editingModel.name}
+              </h2>
+
+              {editError && (
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-700 rounded-lg text-red-400 text-sm">
+                  {editError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Name */}
+                <div className="space-y-2">
+                  <Label htmlFor="edit-name">Configuration Name</Label>
+                  <Input
+                    id="edit-name"
+                    value={editForm.name}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, name: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* Provider */}
+                <div className="space-y-2">
+                  <Label>Provider</Label>
+                  <Select
+                    value={editForm.provider}
+                    onValueChange={(v) =>
+                      setEditForm({
+                        ...editForm,
+                        provider: v,
+                        model: "",
+                        baseUrl: "",
+                        requestTemplate: '{"prompt": "{{prompt}}"}',
+                        responsePath: "response",
+                        httpMethod: "POST",
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROVIDERS.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Model Identifier */}
+                <div className="space-y-2">
+                  <Label htmlFor="edit-model">Model Identifier</Label>
+                  <Input
+                    id="edit-model"
+                    placeholder={
+                      selectedEditProvider?.placeholder ||
+                      "Enter model identifier"
+                    }
+                    value={editForm.model}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, model: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* API Key */}
+                <div className="space-y-2">
+                  <Label htmlFor="edit-apiKey">
+                    API Key{" "}
+                    <span className="text-stone-500 text-xs">
+                      (leave blank to keep existing)
+                    </span>
+                  </Label>
+                  <Input
+                    id="edit-apiKey"
+                    type="password"
+                    placeholder="Enter new key or leave blank"
+                    value={editForm.apiKey}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, apiKey: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* Base URL */}
+                {(selectedEditProvider?.requiresBaseUrl ||
+                  isEditCustomProvider) && (
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="edit-baseUrl">Base URL</Label>
+                    <Input
+                      id="edit-baseUrl"
+                      placeholder={
+                        selectedEditProvider?.defaultBaseUrl ||
+                        "https://your-api-endpoint.com"
+                      }
+                      value={editForm.baseUrl}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, baseUrl: e.target.value })
+                      }
+                    />
+                    {isEditCustomProvider && (
+                      <p className="text-xs text-stone-500">
+                        The full URL to your LLM endpoint (e.g.,
+                        http://localhost:8000/ai)
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Custom Endpoint Configuration */}
+                {isEditCustomProvider && (
+                  <div className="col-span-2 space-y-4 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+                    <p className="text-xs font-semibold uppercase text-stone-400 tracking-wide">
+                      Custom Endpoint Configuration
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* HTTP Method */}
+                      <div className="space-y-2">
+                        <Label>HTTP Method</Label>
+                        <Select
+                          value={editForm.httpMethod}
+                          onValueChange={(v) =>
+                            setEditForm({ ...editForm, httpMethod: v })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="POST">POST</SelectItem>
+                            <SelectItem value="GET">GET</SelectItem>
+                            <SelectItem value="PUT">PUT</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Response Path */}
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-responsePath">
+                          Response JSON Path
+                        </Label>
+                        <Input
+                          id="edit-responsePath"
+                          placeholder="response"
+                          value={editForm.responsePath}
+                          onChange={(e) =>
+                            setEditForm({
+                              ...editForm,
+                              responsePath: e.target.value,
+                            })
+                          }
+                        />
+                        <p className="text-xs text-stone-500">
+                          Dot-path to extract text from JSON response (e.g.,{" "}
+                          <code className="text-stone-400">response</code> or{" "}
+                          <code className="text-stone-400">
+                            choices.0.message.content
+                          </code>
+                          )
+                        </p>
+                      </div>
+
+                      {/* Request Template */}
+                      <div className="space-y-2 col-span-2">
+                        <Label htmlFor="edit-requestTemplate">
+                          Request Body Template
+                        </Label>
+                        <Input
+                          id="edit-requestTemplate"
+                          placeholder='{"prompt": "{{prompt}}"}'
+                          value={editForm.requestTemplate}
+                          onChange={(e) =>
+                            setEditForm({
+                              ...editForm,
+                              requestTemplate: e.target.value,
+                            })
+                          }
+                          className="font-mono text-xs"
+                        />
+                        <p className="text-xs text-stone-500">
+                          JSON template with{" "}
+                          <code className="text-stone-400">{"{{prompt}}"}</code>{" "}
+                          placeholder where the test prompt will be injected
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-4 mt-4 border-t border-zinc-800">
+                <Button
+                  onClick={handleUpdate}
+                  disabled={
+                    isUpdating ||
+                    !editForm.name ||
+                    !editForm.provider ||
+                    !editForm.model ||
+                    (isEditCustomProvider && !editForm.baseUrl)
+                  }
+                >
+                  {isUpdating ? (
+                    <>
+                      <IconLoader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setEditingModel(null)}
+                  disabled={isUpdating}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Provider Reference */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">

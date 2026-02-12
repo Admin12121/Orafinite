@@ -49,7 +49,7 @@ export const session = pgTable(
     index("idx_session_token").on(table.token),
     index("idx_session_user_id").on(table.userId),
     index("idx_session_expires").on(table.expiresAt),
-  ],
+  ]
 );
 
 // Account table (Better Auth - OAuth providers)
@@ -75,7 +75,7 @@ export const account = pgTable(
   (table) => [
     index("idx_account_user_id").on(table.userId),
     unique("account_provider_unique").on(table.providerId, table.accountId),
-  ],
+  ]
 );
 
 // Verification table (Better Auth - email verification, password reset)
@@ -89,7 +89,7 @@ export const verification = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [index("idx_verification_identifier").on(table.identifier)],
+  (table) => [index("idx_verification_identifier").on(table.identifier)]
 );
 
 // Two Factor table (Better Auth 2FA plugin)
@@ -105,7 +105,7 @@ export const twoFactor = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [index("idx_two_factor_user_id").on(table.userId)],
+  (table) => [index("idx_two_factor_user_id").on(table.userId)]
 );
 
 // Passkey table (Better Auth passkey plugin)
@@ -129,7 +129,7 @@ export const passkey = pgTable(
   (table) => [
     index("idx_passkey_user_id").on(table.userId),
     index("idx_passkey_credential_id").on(table.credentialId),
-  ],
+  ]
 );
 
 // ============================================================

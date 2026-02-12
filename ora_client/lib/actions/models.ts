@@ -1,6 +1,7 @@
 "use server";
 
 import { modelsApi } from "@/lib/api";
+import type { UpdateModelConfigRequest } from "@/lib/api";
 
 export interface ModelConfig {
   id: string;
@@ -24,6 +25,20 @@ export interface CreateModelInput {
   /** Optional JSON settings (e.g. custom endpoint config for self-hosted models) */
   settings?: Record<string, unknown>;
   isDefault?: boolean;
+}
+
+export interface UpdateModelInput {
+  name?: string;
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  /** Optional JSON settings (e.g. custom endpoint config for self-hosted models) */
+  settings?: Record<string, unknown>;
+  /** Set to true to explicitly clear the API key */
+  clearApiKey?: boolean;
+  /** Set to true to explicitly clear the base URL */
+  clearBaseUrl?: boolean;
 }
 
 function mapModelConfig(m: {
@@ -68,6 +83,31 @@ export async function createModelConfig(
     settings: input.settings,
     is_default: input.isDefault,
   });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return mapModelConfig(data);
+}
+
+/**
+ * Update an existing model configuration
+ * Calls Rust API: PUT /v1/models/{modelId}
+ */
+export async function updateModelConfig(
+  modelId: string,
+  input: UpdateModelInput,
+): Promise<ModelConfig> {
+  const payload: UpdateModelConfigRequest = {};
+  if (input.name !== undefined) payload.name = input.name;
+  if (input.provider !== undefined) payload.provider = input.provider;
+  if (input.model !== undefined) payload.model = input.model;
+  if (input.apiKey !== undefined) payload.api_key = input.apiKey;
+  if (input.baseUrl !== undefined) payload.base_url = input.baseUrl;
+  if (input.settings !== undefined) payload.settings = input.settings;
+  if (input.clearApiKey) payload.clear_api_key = true;
+  if (input.clearBaseUrl) payload.clear_base_url = true;
+
+  const { data, error } = await modelsApi.update(modelId, payload);
   if (error) {
     throw new Error(error.message);
   }
