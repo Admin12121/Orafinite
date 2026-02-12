@@ -14,29 +14,39 @@ const protectedRoutes = [
 // Routes that should redirect to dashboard if already authenticated
 const authRoutes = ["/login"];
 
-// Rust API base URL (internal, not exposed to browser)
-const API_BASE_URL = process.env.RUST_API_URL || "http://localhost:8080";
-
 /**
- * Validate a session token against the Rust API.
- * Returns true only if the backend confirms the token is valid and not expired.
+ * Validate a session by calling Better Auth's own get-session endpoint.
+ * This avoids any dependency on the Rust API for auth flow and validates
+ * directly against the source of truth (Better Auth / Next.js).
+ *
+ * Safe from infinite loops because /api routes are excluded from the
+ * middleware matcher.
  */
-async function validateSession(sessionToken: string): Promise<boolean> {
+async function validateSession(request: NextRequest): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/auth/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_token: sessionToken }),
+    // Build the internal URL to Better Auth's get-session endpoint
+    const sessionUrl = new URL("/api/auth/get-session", request.url);
+
+    const res = await fetch(sessionUrl.toString(), {
+      method: "GET",
+      headers: {
+        // Forward all cookies from the incoming request so Better Auth
+        // can read its session_token / session_data cookies
+        cookie: request.headers.get("cookie") || "",
+      },
       // Short timeout so middleware doesn't block too long
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!res.ok) {
       return false;
     }
 
-    const data: { valid: boolean } = await res.json();
-    return data.valid === true;
+    const data = await res.json();
+
+    // Better Auth returns { session: {...}, user: {...} } when valid,
+    // or null / empty when invalid
+    return !!(data?.session && data?.user);
   } catch {
     // Network error or timeout — fail closed (treat as unauthenticated)
     return false;
@@ -61,17 +71,20 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Get session from Better Auth cookie
+  // Quick check: if no session cookie at all, skip the fetch entirely
   const sessionCookie = request.cookies.get("better-auth.session_token");
-  const tokenValue = sessionCookie?.value;
-
-  // No cookie at all — definitely not authenticated
-  let isAuthenticated = false;
-
-  if (tokenValue) {
-    // Validate the token against the Rust API instead of just trusting its existence
-    isAuthenticated = await validateSession(tokenValue);
+  if (!sessionCookie?.value) {
+    if (isProtectedRoute) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    // On auth routes with no cookie, just let them through
+    return NextResponse.next();
   }
+
+  // Validate the session against Better Auth's own endpoint
+  const isAuthenticated = await validateSession(request);
 
   // Redirect unauthenticated users away from protected routes
   if (isProtectedRoute && !isAuthenticated) {
@@ -96,7 +109,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
-     * - api routes (handled separately)
+     * - api routes (handled separately — also prevents middleware loops)
      */
     "/((?!_next/static|_next/image|favicon.ico|public|api).*)",
   ],

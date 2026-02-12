@@ -385,11 +385,43 @@ export interface ScanResultsResponse {
   completed_at: string | null;
 }
 
+// --- Guard Config (per API key) ---
+
+export interface GuardScannerEntry {
+  enabled: boolean;
+  threshold: number;
+  settings_json: string;
+}
+
+export interface GuardConfig {
+  scan_mode: "prompt_only" | "output_only" | "both";
+  input_scanners: Record<string, GuardScannerEntry>;
+  output_scanners: Record<string, GuardScannerEntry>;
+  sanitize: boolean;
+  fail_fast: boolean;
+}
+
+export interface UpdateGuardConfigRequest {
+  guard_config: GuardConfig | null;
+}
+
+export interface UpdateGuardConfigResponse {
+  success: boolean;
+  guard_config: GuardConfig | null;
+}
+
+export interface GetGuardConfigResponse {
+  key_id: string;
+  key_name: string;
+  guard_config: GuardConfig | null;
+}
+
 // --- API Keys ---
 
 export interface CreateApiKeyRequest {
   name: string;
   scopes?: string[];
+  guard_config?: GuardConfig | null;
 }
 
 export interface CreateApiKeyResponse {
@@ -398,6 +430,7 @@ export interface CreateApiKeyResponse {
   prefix: string;
   name: string;
   scopes: string[];
+  guard_config: GuardConfig | null;
   created_at: string;
 }
 
@@ -413,6 +446,7 @@ export interface ApiKeyItem {
   revoked_at: string | null;
   created_by: string;
   created_at: string;
+  guard_config: GuardConfig | null;
 }
 
 export interface ListApiKeysResponse {
@@ -538,6 +572,13 @@ export const apiKeysApi = {
   list: () => api.get<ListApiKeysResponse>("/v1/api-keys"),
   revoke: (keyId: string) =>
     api.delete<RevokeApiKeyResponse>(`/v1/api-keys/${keyId}`),
+  getGuardConfig: (keyId: string) =>
+    api.get<GetGuardConfigResponse>(`/v1/api-keys/${keyId}/guard-config`),
+  updateGuardConfig: (keyId: string, data: UpdateGuardConfigRequest) =>
+    api.put<UpdateGuardConfigResponse>(
+      `/v1/api-keys/${keyId}/guard-config`,
+      data,
+    ),
 };
 
 export const modelsApi = {

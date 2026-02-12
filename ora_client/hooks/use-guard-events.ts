@@ -172,22 +172,23 @@ export function useGuardEvents(
 
     // The SSE endpoint is proxied through nginx to the Rust API.
     //
-    // EventSource does NOT support custom headers, so we use two
-    // strategies for authentication:
+    // EventSource does NOT support custom headers, so we obtain a
+    // short-lived, single-use ticket and pass it as `?ticket=<ticket>`.
     //
-    // 1. The `better-auth.session_token` cookie is sent automatically
-    //    for same-origin requests (handled by nginx proxy).
+    // The ticket is obtained via a Next.js API proxy route that:
+    //   1. Authenticates the user server-side via Better Auth (cookies)
+    //   2. Calls the Rust API with the real DB session token as Bearer
+    //   3. Returns the one-time ticket to the browser
     //
-    // 2. As a fallback, we obtain a short-lived, single-use ticket
-    //    from `POST /v1/guard/events/ticket` and pass it as
-    //    `?ticket=<ticket>`. This avoids leaking the real session
-    //    token in URLs, logs, Referer headers, or browser history.
+    // This avoids the browser needing to authenticate directly with
+    // the Rust API via cookies (which fails because Better Auth's
+    // cookie value may differ from the raw token in the session table).
 
     let url = `/v1/guard/events`;
 
-    // Obtain a one-time SSE ticket (NOT the raw session token)
+    // Obtain a one-time SSE ticket via the Next.js proxy
     try {
-      const res = await fetch("/v1/guard/events/ticket", {
+      const res = await fetch("/api/guard/events/ticket", {
         method: "POST",
         credentials: "include",
       });
@@ -200,16 +201,13 @@ export function useGuardEvents(
           url += `?ticket=${encodeURIComponent(data.ticket)}`;
         }
       } else {
-        // Cookie-based auth will be used as fallback
-        console.debug(
-          "[useGuardEvents] Could not obtain SSE ticket, relying on cookie auth",
+        console.warn(
+          "[useGuardEvents] Could not obtain SSE ticket (status %d). SSE will not connect.",
+          res.status,
         );
       }
-    } catch {
-      // Cookie-based auth will be used as fallback
-      console.debug(
-        "[useGuardEvents] Could not obtain SSE ticket, relying on cookie auth",
-      );
+    } catch (err) {
+      console.warn("[useGuardEvents] Failed to fetch SSE ticket:", err);
     }
 
     const es = new EventSource(url, { withCredentials: true });

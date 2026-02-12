@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   IconKey,
   IconPlus,
   IconTrash,
   IconCopy,
   IconCheck,
+  IconSettings,
+  IconShieldBolt,
+  IconChevronDown,
+  IconChevronRight,
+  IconArrowRight,
+  IconArrowLeft,
+  IconLoader2,
+  IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +34,20 @@ import {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  updateGuardConfig,
 } from "@/lib/actions/api-keys";
+import type { GuardConfig, GuardScannerEntry } from "@/lib/api";
+import {
+  ALL_INPUT_SCANNERS,
+  ALL_OUTPUT_SCANNERS,
+  SCANNER_META,
+  type InputScannerName,
+  type OutputScannerName,
+} from "@/lib/scanner-meta";
+
+// ============================================
+// Types
+// ============================================
 
 interface ApiKeyDisplay {
   id: string;
@@ -34,11 +55,54 @@ interface ApiKeyDisplay {
   keyPrefix: string;
   createdAt: Date;
   lastUsedAt: Date | null;
+  guardConfig: GuardConfig | null;
 }
 
-// Code snippets for different languages
-const CODE_SNIPPETS = {
-  curl: `curl --location 'http://localhost:8080/v1/guard/scan' \\
+type ScanMode = "prompt_only" | "output_only" | "both";
+
+interface ScannerEntry {
+  enabled: boolean;
+  threshold: number;
+  settingsJson: string;
+}
+
+// ============================================
+// Constants
+// ============================================
+
+const DEFAULT_INPUT_SCANNERS: InputScannerName[] = [
+  "prompt_injection",
+  "toxicity",
+  "anonymize",
+  "secrets",
+  "gibberish",
+  "invisible_text",
+];
+
+const DEFAULT_OUTPUT_SCANNERS: OutputScannerName[] = [
+  "sensitive",
+  "toxicity",
+  "malicious_urls",
+  "bias",
+  "deanonymize",
+];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  Security: "bg-red-500/15 text-red-400 border-red-500/30",
+  Safety: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  Privacy: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  Content: "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  Quality: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+  Business: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+  Custom: "bg-pink-500/15 text-pink-400 border-pink-500/30",
+};
+
+// Build code snippets dynamically so URLs match the current host
+// (works on localhost, LAN IPs, custom domains — wherever the user accesses from)
+function buildCodeSnippets(baseUrl: string) {
+  const endpoint = `${baseUrl}/v1/guard/scan`;
+  return {
+    curl: `curl --location '${endpoint}' \\
 --header 'X-API-Key: YOUR_API_KEY' \\
 --header 'Content-Type: application/json' \\
 --data '{
@@ -50,7 +114,7 @@ const CODE_SNIPPETS = {
     "sanitize": false
   }
 }'`,
-  nodejs: `const response = await fetch('http://localhost:8080/v1/guard/scan', {
+    nodejs: `const response = await fetch('${endpoint}', {
   method: 'POST',
   headers: {
     'X-API-Key': 'YOUR_API_KEY',
@@ -69,10 +133,10 @@ const CODE_SNIPPETS = {
 
 const result = await response.json();
 console.log(result.safe ? 'Safe!' : 'Threats detected:', result.threats);`,
-  python: `import requests
+    python: `import requests
 
 response = requests.post(
-    'http://localhost:8080/v1/guard/scan',
+    '${endpoint}',
     headers={
         'X-API-Key': 'YOUR_API_KEY',
         'Content-Type': 'application/json',
@@ -90,12 +154,12 @@ response = requests.post(
 
 result = response.json()
 print('Safe!' if result['safe'] else f"Threats: {result['threats']}")`,
-  rust: `use reqwest::Client;
+    rust: `use reqwest::Client;
 use serde_json::json;
 
 let client = Client::new();
 let response = client
-    .post("http://localhost:8080/v1/guard/scan")
+    .post("${endpoint}")
     .header("X-API-Key", "YOUR_API_KEY")
     .header("Content-Type", "application/json")
     .json(&json!({
@@ -112,7 +176,7 @@ let response = client
 
 let result: serde_json::Value = response.json().await?;
 println!("{:?}", result);`,
-  go: `package main
+    go: `package main
 
 import (
     "bytes"
@@ -132,7 +196,7 @@ func main() {
     }
 
     body, _ := json.Marshal(payload)
-    req, _ := http.NewRequest("POST", "http://localhost:8080/v1/guard/scan", bytes.NewBuffer(body))
+    req, _ := http.NewRequest("POST", "${endpoint}", bytes.NewBuffer(body))
     req.Header.Set("X-API-Key", "YOUR_API_KEY")
     req.Header.Set("Content-Type", "application/json")
 
@@ -140,11 +204,11 @@ func main() {
     resp, _ := client.Do(req)
     defer resp.Body.Close()
 }`,
-  php: `<?php
+    php: `<?php
 $ch = curl_init();
 
 curl_setopt_array($ch, [
-    CURLOPT_URL => 'http://localhost:8080/v1/guard/scan',
+    CURLOPT_URL => '${endpoint}',
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_POST => true,
     CURLOPT_HTTPHEADER => [
@@ -167,12 +231,12 @@ $result = json_decode($response, true);
 curl_close($ch);
 
 echo $result['safe'] ? 'Safe!' : 'Threats detected';`,
-  csharp: `using System.Net.Http;
+    csharp: `using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 
 var client = new HttpClient();
-var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:8080/v1/guard/scan");
+var request = new HttpRequestMessage(HttpMethod.Post, "${endpoint}");
 request.Headers.Add("X-API-Key", "YOUR_API_KEY");
 
 var payload = new {
@@ -194,7 +258,7 @@ request.Content = new StringContent(
 var response = await client.SendAsync(request);
 var result = await response.Content.ReadAsStringAsync();
 Console.WriteLine(result);`,
-  java: `import java.net.http.*;
+    java: `import java.net.http.*;
 import java.net.URI;
 
 HttpClient client = HttpClient.newHttpClient();
@@ -212,7 +276,7 @@ String json = """
     """;
 
 HttpRequest request = HttpRequest.newBuilder()
-    .uri(URI.create("http://localhost:8080/v1/guard/scan"))
+    .uri(URI.create("${endpoint}"))
     .header("X-API-Key", "YOUR_API_KEY")
     .header("Content-Type", "application/json")
     .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -221,7 +285,8 @@ HttpRequest request = HttpRequest.newBuilder()
 HttpResponse<String> response = client.send(request,
     HttpResponse.BodyHandlers.ofString());
 System.out.println(response.body());`,
-};
+  };
+}
 
 const LANGUAGES = [
   {
@@ -267,6 +332,712 @@ const LANGUAGES = [
   },
 ];
 
+// ============================================
+// Helpers
+// ============================================
+
+function buildDefaultInputScanners(): Record<string, ScannerEntry> {
+  const entries: Record<string, ScannerEntry> = {};
+  for (const name of ALL_INPUT_SCANNERS) {
+    entries[name] = {
+      enabled: DEFAULT_INPUT_SCANNERS.includes(name),
+      threshold: 0.5,
+      settingsJson: "",
+    };
+  }
+  return entries;
+}
+
+function buildDefaultOutputScanners(): Record<string, ScannerEntry> {
+  const entries: Record<string, ScannerEntry> = {};
+  for (const name of ALL_OUTPUT_SCANNERS) {
+    entries[name] = {
+      enabled: DEFAULT_OUTPUT_SCANNERS.includes(name),
+      threshold: 0.5,
+      settingsJson: "",
+    };
+  }
+  return entries;
+}
+
+function guardConfigToLocal(gc: GuardConfig): {
+  scanMode: ScanMode;
+  inputScanners: Record<string, ScannerEntry>;
+  outputScanners: Record<string, ScannerEntry>;
+  sanitize: boolean;
+  failFast: boolean;
+} {
+  const inputScanners: Record<string, ScannerEntry> = {};
+  for (const name of ALL_INPUT_SCANNERS) {
+    const remote = gc.input_scanners[name];
+    inputScanners[name] = remote
+      ? {
+          enabled: remote.enabled,
+          threshold: remote.threshold,
+          settingsJson: remote.settings_json,
+        }
+      : { enabled: false, threshold: 0.5, settingsJson: "" };
+  }
+
+  const outputScanners: Record<string, ScannerEntry> = {};
+  for (const name of ALL_OUTPUT_SCANNERS) {
+    const remote = gc.output_scanners[name];
+    outputScanners[name] = remote
+      ? {
+          enabled: remote.enabled,
+          threshold: remote.threshold,
+          settingsJson: remote.settings_json,
+        }
+      : { enabled: false, threshold: 0.5, settingsJson: "" };
+  }
+
+  return {
+    scanMode: gc.scan_mode,
+    inputScanners,
+    outputScanners,
+    sanitize: gc.sanitize,
+    failFast: gc.fail_fast,
+  };
+}
+
+function localToGuardConfig(
+  scanMode: ScanMode,
+  inputScanners: Record<string, ScannerEntry>,
+  outputScanners: Record<string, ScannerEntry>,
+  sanitize: boolean,
+  failFast: boolean,
+): GuardConfig {
+  const input_scanners: Record<string, GuardScannerEntry> = {};
+  for (const [name, entry] of Object.entries(inputScanners)) {
+    input_scanners[name] = {
+      enabled: entry.enabled,
+      threshold: entry.threshold,
+      settings_json: entry.settingsJson,
+    };
+  }
+
+  const output_scanners: Record<string, GuardScannerEntry> = {};
+  for (const [name, entry] of Object.entries(outputScanners)) {
+    output_scanners[name] = {
+      enabled: entry.enabled,
+      threshold: entry.threshold,
+      settings_json: entry.settingsJson,
+    };
+  }
+
+  return {
+    scan_mode: scanMode,
+    input_scanners,
+    output_scanners,
+    sanitize,
+    fail_fast: failFast,
+  };
+}
+
+function countEnabled(scanners: Record<string, ScannerEntry>): number {
+  return Object.values(scanners).filter((s) => s.enabled).length;
+}
+
+// ============================================
+// Mini Scanner Toggle (compact for credentials page)
+// ============================================
+
+function ScannerToggleRow({
+  name,
+  entry,
+  onToggle,
+  onThresholdChange,
+  onSettingsChange,
+}: {
+  name: string;
+  entry: ScannerEntry;
+  onToggle: () => void;
+  onThresholdChange: (v: number) => void;
+  onSettingsChange: (v: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const meta = SCANNER_META[name] || {
+    label: name,
+    description: "No description available",
+    category: "Custom",
+  };
+  const catColor =
+    CATEGORY_COLORS[meta.category] ||
+    "bg-stone-500/15 text-stone-400 border-stone-500/30";
+
+  return (
+    <div
+      className={`border rounded-lg transition-all duration-150 ${
+        entry.enabled
+          ? "border-zinc-700 bg-zinc-900"
+          : "border-zinc-800/50 bg-zinc-900/30 opacity-50"
+      }`}
+    >
+      <div className="flex items-center gap-2.5 px-3 py-2">
+        {/* Toggle */}
+        <button
+          onClick={onToggle}
+          className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${
+            entry.enabled ? "bg-lime-600" : "bg-zinc-700"
+          }`}
+          aria-label={`Toggle ${meta.label}`}
+        >
+          <span
+            className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${
+              entry.enabled ? "translate-x-[14px]" : "translate-x-0"
+            }`}
+          />
+        </button>
+
+        {/* Label + category */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-stone-200 truncate">
+              {meta.label}
+            </span>
+            <span
+              className={`text-[9px] font-mono uppercase px-1 py-0.5 rounded border leading-none ${catColor}`}
+            >
+              {meta.category}
+            </span>
+          </div>
+        </div>
+
+        {/* Expand */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-stone-600 hover:text-stone-400 transition-colors p-0.5"
+          aria-label="Settings"
+        >
+          {expanded ? (
+            <IconChevronDown className="w-3.5 h-3.5" />
+          ) : (
+            <IconChevronRight className="w-3.5 h-3.5" />
+          )}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
+          {/* Threshold */}
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] text-stone-500 font-mono uppercase w-16">
+              Threshold
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={entry.threshold}
+              onChange={(e) => onThresholdChange(parseFloat(e.target.value))}
+              className="flex-1 accent-lime-500 h-1"
+            />
+            <span className="text-[10px] font-mono text-stone-400 w-8 text-right">
+              {entry.threshold.toFixed(2)}
+            </span>
+          </div>
+
+          {/* Settings JSON */}
+          {(meta.requiresSettings || meta.settingsHint) && (
+            <div className="space-y-1">
+              <label className="text-[10px] text-stone-500 font-mono uppercase">
+                Settings (JSON)
+              </label>
+              <textarea
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] font-mono text-stone-300 min-h-[40px] focus:outline-none focus:border-zinc-600 resize-y"
+                placeholder={meta.settingsHint || "{}"}
+                value={entry.settingsJson}
+                onChange={(e) => onSettingsChange(e.target.value)}
+              />
+              {meta.requiresSettings && !entry.settingsJson && (
+                <p className="text-[9px] text-yellow-500">
+                  ⚠ This scanner requires settings
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// Guard Config Panel (per key)
+// ============================================
+
+function GuardConfigPanel({
+  keyId,
+  keyName,
+  initialConfig,
+  onClose,
+  onSaved,
+}: {
+  keyId: string;
+  keyName: string;
+  initialConfig: GuardConfig | null;
+  onClose: () => void;
+  onSaved: (config: GuardConfig | null) => void;
+}) {
+  const hasExisting = initialConfig !== null;
+  const defaults = hasExisting
+    ? guardConfigToLocal(initialConfig)
+    : {
+        scanMode: "prompt_only" as ScanMode,
+        inputScanners: buildDefaultInputScanners(),
+        outputScanners: buildDefaultOutputScanners(),
+        sanitize: false,
+        failFast: false,
+      };
+
+  const [scanMode, setScanMode] = useState<ScanMode>(defaults.scanMode);
+  const [inputScanners, setInputScanners] = useState(defaults.inputScanners);
+  const [outputScanners, setOutputScanners] = useState(defaults.outputScanners);
+  const [sanitize, setSanitize] = useState(defaults.sanitize);
+  const [failFast, setFailFast] = useState(defaults.failFast);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [inputFilter, setInputFilter] = useState("");
+  const [outputFilter, setOutputFilter] = useState("");
+
+  const updateInput = useCallback(
+    (name: string, patch: Partial<ScannerEntry>) => {
+      setInputScanners((prev) => ({
+        ...prev,
+        [name]: { ...prev[name], ...patch },
+      }));
+    },
+    [],
+  );
+
+  const updateOutput = useCallback(
+    (name: string, patch: Partial<ScannerEntry>) => {
+      setOutputScanners((prev) => ({
+        ...prev,
+        [name]: { ...prev[name], ...patch },
+      }));
+    },
+    [],
+  );
+
+  const toggleAllInput = useCallback((enabled: boolean) => {
+    setInputScanners((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        next[key] = { ...next[key], enabled };
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllOutput = useCallback((enabled: boolean) => {
+    setOutputScanners((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        next[key] = { ...next[key], enabled };
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const config = localToGuardConfig(
+        scanMode,
+        inputScanners,
+        outputScanners,
+        sanitize,
+        failFast,
+      );
+      await updateGuardConfig(keyId, config);
+      onSaved(config);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save config",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRemoveConfig = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await updateGuardConfig(keyId, null);
+      onSaved(null);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to remove config",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const showInput = scanMode === "prompt_only" || scanMode === "both";
+  const showOutput = scanMode === "output_only" || scanMode === "both";
+
+  const filteredInput = ALL_INPUT_SCANNERS.filter((name) => {
+    if (!inputFilter) return true;
+    const meta = SCANNER_META[name];
+    const q = inputFilter.toLowerCase();
+    return (
+      name.includes(q) ||
+      meta?.label.toLowerCase().includes(q) ||
+      meta?.category.toLowerCase().includes(q)
+    );
+  });
+
+  const filteredOutput = ALL_OUTPUT_SCANNERS.filter((name) => {
+    if (!outputFilter) return true;
+    const meta = SCANNER_META[name];
+    const q = outputFilter.toLowerCase();
+    return (
+      name.includes(q) ||
+      meta?.label.toLowerCase().includes(q) ||
+      meta?.category.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+        <div className="flex items-center gap-3">
+          <IconShieldBolt className="w-5 h-5 text-lime-500" />
+          <div>
+            <h3 className="text-sm font-bold text-stone-200">
+              Guard Protection Config
+            </h3>
+            <p className="text-[11px] text-stone-500">
+              Key:{" "}
+              <span className="font-semibold text-stone-400">{keyName}</span>
+              {" · "}
+              Configure what this API key protects automatically
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-stone-500 hover:text-stone-300 transition-colors p-1"
+        >
+          <IconX className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Scan Mode + Options Row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Scan Mode */}
+          <div className="space-y-2">
+            <Label className="text-xs font-mono uppercase text-stone-500">
+              Scan Mode
+            </Label>
+            <div className="flex gap-1.5">
+              {(
+                [
+                  {
+                    mode: "prompt_only" as ScanMode,
+                    label: "Prompt Only",
+                    icon: "→",
+                  },
+                  {
+                    mode: "output_only" as ScanMode,
+                    label: "Output Only",
+                    icon: "←",
+                  },
+                  { mode: "both" as ScanMode, label: "Both", icon: "⇄" },
+                ] as const
+              ).map(({ mode, label, icon }) => (
+                <button
+                  key={mode}
+                  onClick={() => setScanMode(mode)}
+                  className={`flex-1 px-3 py-2 text-xs font-mono uppercase rounded-lg border transition-colors ${
+                    scanMode === mode
+                      ? "bg-lime-500/20 border-lime-500 text-lime-400"
+                      : "border-zinc-700 text-stone-500 hover:text-stone-300"
+                  }`}
+                >
+                  <span className="mr-1">{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-stone-600">
+              {scanMode === "prompt_only" &&
+                'API callers just send {"prompt": "..."} — no extra headers needed'}
+              {scanMode === "output_only" &&
+                'API callers just send {"output": "..."} — no extra headers needed'}
+              {scanMode === "both" &&
+                "Callers must send X-Scan-Type header (prompt / output / both) to specify what to scan"}
+            </p>
+          </div>
+
+          {/* Options */}
+          <div className="space-y-2">
+            <Label className="text-xs font-mono uppercase text-stone-500">
+              Options
+            </Label>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sanitize}
+                  onChange={(e) => setSanitize(e.target.checked)}
+                  className="rounded border-zinc-600 accent-lime-500"
+                />
+                <span className="text-xs text-stone-400">
+                  Return sanitized text
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={failFast}
+                  onChange={(e) => setFailFast(e.target.checked)}
+                  className="rounded border-zinc-600 accent-lime-500"
+                />
+                <span className="text-xs text-stone-400">
+                  Fail fast (stop after first failure)
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Scanner Columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Input Scanners */}
+          {showInput && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <IconArrowRight className="w-3.5 h-3.5 text-stone-500" />
+                  <span className="text-stone-400 font-semibold text-[11px] uppercase font-mono tracking-wider">
+                    Input Scanners
+                  </span>
+                  <span className="text-[10px] font-mono bg-zinc-800 text-stone-500 px-1.5 py-0.5 rounded">
+                    {countEnabled(inputScanners)}/{ALL_INPUT_SCANNERS.length}
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => toggleAllInput(true)}
+                    className="text-[9px] font-mono text-lime-500 hover:text-lime-400 px-1.5 py-0.5 rounded border border-lime-500/20"
+                  >
+                    All on
+                  </button>
+                  <button
+                    onClick={() => toggleAllInput(false)}
+                    className="text-[9px] font-mono text-red-500 hover:text-red-400 px-1.5 py-0.5 rounded border border-red-500/20"
+                  >
+                    All off
+                  </button>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                placeholder="Filter scanners..."
+                value={inputFilter}
+                onChange={(e) => setInputFilter(e.target.value)}
+                className="w-full bg-zinc-800/50 border border-zinc-800 rounded-lg px-3 py-1.5 text-[11px] text-stone-400 placeholder-stone-600 focus:outline-none focus:border-zinc-700"
+              />
+
+              <div className="flex flex-col gap-1.5 max-h-[400px] overflow-y-auto pr-1">
+                {filteredInput.map((name) => (
+                  <ScannerToggleRow
+                    key={`input-${name}`}
+                    name={name}
+                    entry={inputScanners[name]}
+                    onToggle={() =>
+                      updateInput(name, {
+                        enabled: !inputScanners[name].enabled,
+                      })
+                    }
+                    onThresholdChange={(v) =>
+                      updateInput(name, { threshold: v })
+                    }
+                    onSettingsChange={(v) =>
+                      updateInput(name, { settingsJson: v })
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Output Scanners */}
+          {showOutput && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <IconArrowLeft className="w-3.5 h-3.5 text-stone-500" />
+                  <span className="text-stone-400 font-semibold text-[11px] uppercase font-mono tracking-wider">
+                    Output Scanners
+                  </span>
+                  <span className="text-[10px] font-mono bg-zinc-800 text-stone-500 px-1.5 py-0.5 rounded">
+                    {countEnabled(outputScanners)}/{ALL_OUTPUT_SCANNERS.length}
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => toggleAllOutput(true)}
+                    className="text-[9px] font-mono text-lime-500 hover:text-lime-400 px-1.5 py-0.5 rounded border border-lime-500/20"
+                  >
+                    All on
+                  </button>
+                  <button
+                    onClick={() => toggleAllOutput(false)}
+                    className="text-[9px] font-mono text-red-500 hover:text-red-400 px-1.5 py-0.5 rounded border border-red-500/20"
+                  >
+                    All off
+                  </button>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                placeholder="Filter scanners..."
+                value={outputFilter}
+                onChange={(e) => setOutputFilter(e.target.value)}
+                className="w-full bg-zinc-800/50 border border-zinc-800 rounded-lg px-3 py-1.5 text-[11px] text-stone-400 placeholder-stone-600 focus:outline-none focus:border-zinc-700"
+              />
+
+              <div className="flex flex-col gap-1.5 max-h-[400px] overflow-y-auto pr-1">
+                {filteredOutput.map((name) => (
+                  <ScannerToggleRow
+                    key={`output-${name}`}
+                    name={name}
+                    entry={outputScanners[name]}
+                    onToggle={() =>
+                      updateOutput(name, {
+                        enabled: !outputScanners[name].enabled,
+                      })
+                    }
+                    onThresholdChange={(v) =>
+                      updateOutput(name, { threshold: v })
+                    }
+                    onSettingsChange={(v) =>
+                      updateOutput(name, { settingsJson: v })
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Error */}
+        {saveError && (
+          <div className="p-3 bg-red-900/20 border border-red-700 rounded-lg text-red-400 text-xs">
+            {saveError}
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
+          <div className="flex gap-2">
+            {hasExisting && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRemoveConfig}
+                disabled={isSaving}
+                className="text-xs text-red-500 hover:text-red-400"
+              >
+                Remove Config
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="text-xs"
+            >
+              {isSaving ? (
+                <>
+                  <IconLoader2 className="w-3 h-3 mr-1 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <IconCheck className="w-3 h-3 mr-1" />
+                  Save Config
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// Config Badge (shows scan mode summary on key row)
+// ============================================
+
+function ConfigBadge({ config }: { config: GuardConfig | null }) {
+  if (!config) {
+    return (
+      <span className="text-[10px] font-mono text-stone-600 px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900/50">
+        No config
+      </span>
+    );
+  }
+
+  const modeLabel =
+    config.scan_mode === "prompt_only"
+      ? "→ Prompt"
+      : config.scan_mode === "output_only"
+        ? "← Output"
+        : "⇄ Both";
+
+  const inputCount = Object.values(config.input_scanners).filter(
+    (s) => s.enabled,
+  ).length;
+  const outputCount = Object.values(config.output_scanners).filter(
+    (s) => s.enabled,
+  ).length;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] font-mono text-lime-400 px-1.5 py-0.5 rounded border border-lime-500/20 bg-lime-500/10">
+        {modeLabel}
+      </span>
+      {(config.scan_mode === "prompt_only" || config.scan_mode === "both") && (
+        <span className="text-[10px] font-mono text-stone-500">
+          {inputCount}in
+        </span>
+      )}
+      {(config.scan_mode === "output_only" || config.scan_mode === "both") && (
+        <span className="text-[10px] font-mono text-stone-500">
+          {outputCount}out
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// Main Page
+// ============================================
+
 export default function CredentialsPage() {
   const [keys, setKeys] = useState<ApiKeyDisplay[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
@@ -276,6 +1047,16 @@ export default function CredentialsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedLang, setSelectedLang] = useState("curl");
   const [codeCopied, setCodeCopied] = useState(false);
+  const [configuringKeyId, setConfiguringKeyId] = useState<string | null>(null);
+
+  // Build code snippets using the current browser origin so they work
+  // on localhost, LAN IPs, custom domains — wherever the user is.
+  const [codeSnippets, setCodeSnippets] = useState(() =>
+    buildCodeSnippets("http://YOUR_HOST"),
+  );
+  useEffect(() => {
+    setCodeSnippets(buildCodeSnippets(window.location.origin));
+  }, []);
 
   useEffect(() => {
     loadKeys();
@@ -291,6 +1072,7 @@ export default function CredentialsPage() {
           keyPrefix: k.keyPrefix,
           createdAt: new Date(k.createdAt),
           lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt) : null,
+          guardConfig: k.guardConfig,
         })),
       );
     } catch (err) {
@@ -315,6 +1097,9 @@ export default function CredentialsPage() {
 
   const handleRevoke = async (keyId: string) => {
     try {
+      if (configuringKeyId === keyId) {
+        setConfiguringKeyId(null);
+      }
       await revokeApiKey(keyId);
       loadKeys();
     } catch (err) {
@@ -330,10 +1115,17 @@ export default function CredentialsPage() {
 
   const copyCode = () => {
     navigator.clipboard.writeText(
-      CODE_SNIPPETS[selectedLang as keyof typeof CODE_SNIPPETS],
+      codeSnippets[selectedLang as keyof typeof codeSnippets],
     );
     setCodeCopied(true);
     setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  const handleConfigSaved = (keyId: string, config: GuardConfig | null) => {
+    setKeys((prev) =>
+      prev.map((k) => (k.id === keyId ? { ...k, guardConfig: config } : k)),
+    );
+    setConfiguringKeyId(null);
   };
 
   return (
@@ -341,7 +1133,8 @@ export default function CredentialsPage() {
       <div>
         <h1 className="text-xl font-bold">API Credentials</h1>
         <p className="text-sm text-neutral-400">
-          Manage API keys for programmatic access to the LLM Guard API
+          Manage API keys and configure per-key guard protection for the LLM
+          Guard API
         </p>
       </div>
 
@@ -446,6 +1239,7 @@ export default function CredentialsPage() {
                 <tr className="text-left text-xs font-mono uppercase text-stone-500">
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Key</th>
+                  <th className="px-4 py-3">Protection</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Last Used</th>
                   <th className="px-4 py-3"></th>
@@ -463,6 +1257,9 @@ export default function CredentialsPage() {
                         {key.keyPrefix}...
                       </code>
                     </td>
+                    <td className="px-4 py-3">
+                      <ConfigBadge config={key.guardConfig} />
+                    </td>
                     <td className="px-4 py-3 text-stone-500 text-sm">
                       {new Date(key.createdAt).toLocaleDateString()}
                     </td>
@@ -472,35 +1269,59 @@ export default function CredentialsPage() {
                         : "Never"}
                     </td>
                     <td className="px-4 py-3">
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 hover:text-red-400"
-                          >
-                            <IconTrash className="w-4 h-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Revoke API Key?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will immediately invalidate the key. Any
-                              applications using this key will stop working.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleRevoke(key.id)}
-                              className="bg-red-600 hover:bg-red-700"
+                      <div className="flex items-center gap-1">
+                        {/* Configure Protection */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setConfiguringKeyId(
+                              configuringKeyId === key.id ? null : key.id,
+                            )
+                          }
+                          className={`${
+                            configuringKeyId === key.id
+                              ? "text-lime-400 hover:text-lime-300"
+                              : "text-stone-500 hover:text-stone-300"
+                          }`}
+                          title="Configure guard protection"
+                        >
+                          <IconSettings className="w-4 h-4" />
+                        </Button>
+
+                        {/* Revoke */}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-400"
                             >
-                              Revoke Key
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                              <IconTrash className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Revoke API Key?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will immediately invalidate the key. Any
+                                applications using this key will stop working.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleRevoke(key.id)}
+                                className="bg-red-600 hover:bg-red-700"
+                              >
+                                Revoke Key
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -508,6 +1329,22 @@ export default function CredentialsPage() {
             </table>
           )}
         </div>
+
+        {/* Guard Config Panel (shown below the table when a key is selected) */}
+        {configuringKeyId && (
+          <GuardConfigPanel
+            key={configuringKeyId}
+            keyId={configuringKeyId}
+            keyName={
+              keys.find((k) => k.id === configuringKeyId)?.name ?? "Unknown"
+            }
+            initialConfig={
+              keys.find((k) => k.id === configuringKeyId)?.guardConfig ?? null
+            }
+            onClose={() => setConfiguringKeyId(null)}
+            onSaved={(config) => handleConfigSaved(configuringKeyId, config)}
+          />
+        )}
 
         {/* Usage Instructions - Multi-language Code Snippets */}
         <div className="flex gap-4 items-center">
@@ -518,6 +1355,46 @@ export default function CredentialsPage() {
             </span>
           </div>
           <span className="flex-1 h-px bg-stone-200"></span>
+        </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 mb-2">
+          <div className="flex items-start gap-3 mb-4">
+            <IconShieldBolt className="w-5 h-5 text-lime-500 mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-stone-400 space-y-1.5">
+              <p className="font-semibold text-stone-300">
+                Per-key protection means simpler API calls
+              </p>
+              <p>
+                When you configure protection on an API key, the scanners run
+                automatically based on that config. Your API calls become
+                simpler:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-stone-500">
+                <li>
+                  <span className="font-mono text-lime-400">prompt_only</span>{" "}
+                  or{" "}
+                  <span className="font-mono text-lime-400">output_only</span>
+                  {" → "}just send the text, no extra headers needed
+                </li>
+                <li>
+                  <span className="font-mono text-lime-400">both</span>
+                  {" → "}send{" "}
+                  <code className="text-stone-300 bg-zinc-800 px-1 py-0.5 rounded">
+                    X-Scan-Type: prompt
+                  </code>{" "}
+                  or{" "}
+                  <code className="text-stone-300 bg-zinc-800 px-1 py-0.5 rounded">
+                    X-Scan-Type: output
+                  </code>{" "}
+                  header to specify what you&apos;re scanning
+                </li>
+                <li>
+                  Keys without config use the legacy per-request behaviour
+                  (caller sends full scanner config each time)
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <div className="flex border border-zinc-800 rounded-2xl overflow-hidden">
@@ -577,7 +1454,7 @@ export default function CredentialsPage() {
             <div className="overflow-auto p-6 max-h-[450px] min-h-[450px]">
               <pre className="whitespace-pre text-sm">
                 <code className="text-stone-300 font-mono">
-                  {CODE_SNIPPETS[selectedLang as keyof typeof CODE_SNIPPETS]}
+                  {codeSnippets[selectedLang as keyof typeof codeSnippets]}
                 </code>
               </pre>
             </div>
