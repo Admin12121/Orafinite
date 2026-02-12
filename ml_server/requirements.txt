@@ -24,6 +24,9 @@ numpy>=1.24.0
 asyncio
 aiofiles
 
+# HTTP client (used by CustomRESTGenerator for custom API endpoints)
+requests>=2.31.0
+
 # Utilities
 python-dotenv==1.0.0
 pydantic==2.5.3

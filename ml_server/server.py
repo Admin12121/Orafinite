@@ -4,16 +4,20 @@ Provides LLM Guard and Garak functionality to the Rust API.
 
 This sidecar REQUIRES an NVIDIA GPU with CUDA support.
 It will refuse to start if no GPU is detected.
+
+Enhanced features:
+- Streaming intermediate vulnerability results (vulns reported as discovered)
+- Per-probe verbose execution logging with timing
+- Retest capability (re-run specific probes/prompts to confirm vulns)
+- Scan execution logs with full detail
 """
 
 import asyncio
-import json
-import os
 import threading
 import time
 import uuid
 from concurrent import futures
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import grpc
 
@@ -387,10 +391,30 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
             )
             return ml_service_pb2.GarakResponse()
 
+        # Extract custom endpoint config if provided
+        custom_endpoint = None
+        if request.HasField("custom_endpoint") and request.custom_endpoint.url:
+            custom_endpoint = {
+                "url": request.custom_endpoint.url,
+                "method": request.custom_endpoint.method or "POST",
+                "request_template": request.custom_endpoint.request_template
+                or '{"prompt": "{{prompt}}"}',
+                "response_path": request.custom_endpoint.response_path or "response",
+                "headers": dict(request.custom_endpoint.headers)
+                if request.custom_endpoint.headers
+                else {},
+            }
+            logger.info(f"Custom endpoint configured: {custom_endpoint['url']}")
+
+        max_prompts = (
+            request.max_prompts_per_probe if request.max_prompts_per_probe > 0 else 0
+        )
+
         try:
             scan_id = str(uuid.uuid4())
 
-            # Store scan info with timestamp
+            # Store scan info with timestamp — now includes probe_logs and
+            # vulnerabilities are accumulated incrementally via callbacks
             with self._scans_lock:
                 self.running_scans[scan_id] = {
                     "status": "queued",
@@ -398,8 +422,12 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
                     "probes_completed": 0,
                     "probes_total": 0,
                     "vulnerabilities": [],
+                    "probe_logs": [],
                     "created_at": time.time(),
                     "completed_at": None,
+                    "provider": request.provider,
+                    "model": request.model,
+                    "custom_endpoint": custom_endpoint,
                 }
 
             # Start scan in a background thread with its own event loop
@@ -416,6 +444,10 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
                             base_url=request.base_url,
                             probes=list(request.probes),
                             scan_type=request.scan_type,
+                            custom_endpoint=custom_endpoint,
+                            max_prompts_per_probe=max_prompts
+                            if max_prompts > 0
+                            else None,
                         )
                     )
                 finally:
@@ -434,8 +466,42 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
             context.set_details(f"Failed to start scan: {str(e)}")
             return ml_service_pb2.GarakResponse()
 
+    def _vuln_dict_to_proto(self, v: Dict[str, Any]) -> ml_service_pb2.Vulnerability:
+        """Convert a vulnerability dict to a protobuf Vulnerability message."""
+        return ml_service_pb2.Vulnerability(
+            probe_name=v.get("probe_name", ""),
+            category=v.get("category", ""),
+            severity=v.get("severity", ""),
+            description=v.get("description", ""),
+            attack_prompt=v.get("attack_prompt", ""),
+            model_response=v.get("model_response", ""),
+            recommendation=v.get("recommendation", ""),
+            success_rate=v.get("success_rate", 0.0),
+            detector_name=v.get("detector_name", ""),
+            probe_class=v.get("probe_class", ""),
+            probe_duration_ms=v.get("probe_duration_ms", 0),
+        )
+
+    def _probe_log_dict_to_proto(self, pl: Dict[str, Any]) -> ml_service_pb2.ProbeLog:
+        """Convert a probe log dict to a protobuf ProbeLog message."""
+        return ml_service_pb2.ProbeLog(
+            probe_name=pl.get("probe_name", ""),
+            probe_class=pl.get("probe_class", ""),
+            status=pl.get("status", ""),
+            started_at_ms=pl.get("started_at_ms", 0),
+            completed_at_ms=pl.get("completed_at_ms", 0),
+            duration_ms=pl.get("duration_ms", 0),
+            prompts_sent=pl.get("prompts_sent", 0),
+            prompts_passed=pl.get("prompts_passed", 0),
+            prompts_failed=pl.get("prompts_failed", 0),
+            detector_name=pl.get("detector_name", ""),
+            detector_scores=pl.get("detector_scores", []),
+            error_message=pl.get("error_message", ""),
+            log_lines=pl.get("log_lines", []),
+        )
+
     def GetGarakStatus(self, request, context):
-        """Get status of a running Garak scan"""
+        """Get status of a running Garak scan — includes intermediate vulns and probe logs"""
         scan_id = request.scan_id
 
         if not scan_id:
@@ -452,16 +518,11 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
             scan = self.running_scans[scan_id]
 
             vulnerabilities = [
-                ml_service_pb2.Vulnerability(
-                    probe_name=v["probe_name"],
-                    category=v["category"],
-                    severity=v["severity"],
-                    description=v["description"],
-                    attack_prompt=v.get("attack_prompt", ""),
-                    model_response=v.get("model_response", ""),
-                    recommendation=v.get("recommendation", ""),
-                )
-                for v in scan.get("vulnerabilities", [])
+                self._vuln_dict_to_proto(v) for v in scan.get("vulnerabilities", [])
+            ]
+
+            probe_logs = [
+                self._probe_log_dict_to_proto(pl) for pl in scan.get("probe_logs", [])
             ]
 
             return ml_service_pb2.GarakStatusResponse(
@@ -473,6 +534,7 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
                 vulnerabilities_found=len(vulnerabilities),
                 vulnerabilities=vulnerabilities,
                 error_message=scan.get("error_message", ""),
+                probe_logs=probe_logs,
             )
 
     def CancelGarakScan(self, request, context):
@@ -482,26 +544,180 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
         if not scan_id:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("Scan ID is required")
-            return ml_service_pb2.CancelScanResponse(success=False)
+            return ml_service_pb2.GarakResponse()
 
         with self._scans_lock:
             if scan_id not in self.running_scans:
                 context.set_code(grpc.StatusCode.NOT_FOUND)
                 context.set_details(f"Scan {scan_id} not found")
-                return ml_service_pb2.CancelScanResponse(success=False)
+                return ml_service_pb2.GarakResponse()
 
             scan = self.running_scans[scan_id]
 
             if scan["status"] in ("completed", "failed", "cancelled"):
-                return ml_service_pb2.CancelScanResponse(
-                    success=False, message=f"Scan already {scan['status']}"
+                return ml_service_pb2.GarakResponse(
+                    scan_id=scan_id,
+                    status=scan["status"],
                 )
 
             scan["status"] = "cancelled"
             scan["completed_at"] = time.time()
 
-            return ml_service_pb2.CancelScanResponse(
-                success=True, message="Scan cancelled"
+            return ml_service_pb2.GarakResponse(
+                scan_id=scan_id,
+                status="cancelled",
+            )
+
+    def ListGarakProbes(self, request, context):
+        """List all available Garak probes with metadata for the probe picker UI"""
+        try:
+            probe_data = self.garak.get_available_probes()
+
+            categories = []
+            for cat_id, cat_info in probe_data.get("categories", {}).items():
+                categories.append(
+                    ml_service_pb2.GarakProbeCategory(
+                        id=cat_id,
+                        name=cat_info.get("name", cat_id),
+                        description=cat_info.get("description", ""),
+                        icon=cat_info.get("icon", ""),
+                        probe_ids=cat_info.get("probe_ids", []),
+                    )
+                )
+
+            probes = []
+            for probe_id, probe_info in probe_data.get("probes", {}).items():
+                probes.append(
+                    ml_service_pb2.GarakProbeInfo(
+                        id=probe_id,
+                        name=probe_info.get("name", probe_id),
+                        description=probe_info.get("description", ""),
+                        category=probe_info.get("category", "other"),
+                        severity_range=probe_info.get("severity_range", "medium"),
+                        default_enabled=probe_info.get("default_enabled", False),
+                        tags=probe_info.get("tags", []),
+                        class_paths=probe_info.get("class_paths", []),
+                        available=probe_info.get("available", False),
+                    )
+                )
+
+            return ml_service_pb2.GarakProbeListResponse(
+                categories=categories,
+                probes=probes,
+            )
+
+        except Exception as e:
+            logger.error(f"ListGarakProbes failed: {e}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Failed to list probes: {str(e)}")
+            return ml_service_pb2.GarakProbeListResponse()
+
+    def RetestProbe(self, request, context):
+        """Retest a specific vulnerability by re-running the same probe/prompt multiple times"""
+        if not request.provider or not request.model:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Provider and model are required for retest")
+            return ml_service_pb2.RetestResponse()
+
+        if not request.attack_prompt:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Attack prompt is required for retest")
+            return ml_service_pb2.RetestResponse()
+
+        if not self.garak.is_available():
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details("Garak scanner is not available")
+            return ml_service_pb2.RetestResponse()
+
+        num_attempts = request.num_attempts if request.num_attempts > 0 else 3
+
+        try:
+            # Run retest synchronously (it's relatively fast for a single prompt)
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    self.garak.retest_probe(
+                        probe_name=request.probe_name,
+                        probe_class=request.probe_class,
+                        attack_prompt=request.attack_prompt,
+                        provider=request.provider,
+                        model=request.model,
+                        api_key=request.api_key,
+                        base_url=request.base_url,
+                        num_attempts=num_attempts,
+                    )
+                )
+            finally:
+                loop.close()
+
+            retest_results = [
+                ml_service_pb2.RetestResult(
+                    attempt_number=r.get("attempt_number", 0),
+                    is_vulnerable=r.get("is_vulnerable", False),
+                    model_response=r.get("model_response", ""),
+                    detector_score=r.get("detector_score", 0.0),
+                    duration_ms=r.get("duration_ms", 0),
+                    error_message=r.get("error_message", ""),
+                )
+                for r in result.get("results", [])
+            ]
+
+            return ml_service_pb2.RetestResponse(
+                probe_name=result.get("probe_name", request.probe_name),
+                attack_prompt=result.get("attack_prompt", request.attack_prompt),
+                total_attempts=result.get("total_attempts", num_attempts),
+                vulnerable_count=result.get("vulnerable_count", 0),
+                safe_count=result.get("safe_count", 0),
+                confirmation_rate=result.get("confirmation_rate", 0.0),
+                results=retest_results,
+                status=result.get("status", "completed"),
+                error_message=result.get("error_message", ""),
+            )
+
+        except Exception as e:
+            logger.error(f"Retest failed: {e}")
+            return ml_service_pb2.RetestResponse(
+                probe_name=request.probe_name,
+                attack_prompt=request.attack_prompt,
+                total_attempts=0,
+                status="error",
+                error_message=str(e),
+            )
+
+    def GetScanLogs(self, request, context):
+        """Get detailed per-probe execution logs for a scan"""
+        scan_id = request.scan_id
+
+        if not scan_id:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Scan ID is required")
+            return ml_service_pb2.ScanLogsResponse()
+
+        with self._scans_lock:
+            if scan_id not in self.running_scans:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                context.set_details(f"Scan {scan_id} not found")
+                return ml_service_pb2.ScanLogsResponse()
+
+            scan = self.running_scans[scan_id]
+
+            probe_logs = [
+                self._probe_log_dict_to_proto(pl) for pl in scan.get("probe_logs", [])
+            ]
+
+            total_prompts = sum(
+                pl.get("prompts_sent", 0) for pl in scan.get("probe_logs", [])
+            )
+            total_duration = sum(
+                pl.get("duration_ms", 0) for pl in scan.get("probe_logs", [])
+            )
+
+            return ml_service_pb2.ScanLogsResponse(
+                scan_id=scan_id,
+                logs=probe_logs,
+                total_probes=scan.get("probes_total", 0),
+                total_prompts_sent=total_prompts,
+                total_duration_ms=total_duration,
             )
 
     async def _run_garak_scan(
@@ -513,8 +729,10 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
         base_url: str,
         probes: List[str],
         scan_type: str,
+        custom_endpoint: Optional[Dict[str, Any]] = None,
+        max_prompts_per_probe: Optional[int] = None,
     ):
-        """Run Garak scan in background"""
+        """Run Garak scan in background with streaming callbacks"""
         try:
             with self._scans_lock:
                 if scan_id in self.running_scans:
@@ -523,6 +741,27 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
                         return
                     self.running_scans[scan_id]["status"] = "running"
 
+            def on_vulnerability_found(vuln: Dict[str, Any]):
+                """Called immediately when a vulnerability is discovered during scanning."""
+                with self._scans_lock:
+                    if scan_id in self.running_scans:
+                        self.running_scans[scan_id]["vulnerabilities"].append(vuln)
+                        logger.info(
+                            f"[{scan_id[:8]}] Streaming vuln: "
+                            f"{vuln.get('probe_name')} / {vuln.get('severity')}"
+                        )
+
+            def on_probe_log(probe_log: Dict[str, Any]):
+                """Called when a probe finishes execution (pass or fail)."""
+                with self._scans_lock:
+                    if scan_id in self.running_scans:
+                        self.running_scans[scan_id]["probe_logs"].append(probe_log)
+                        logger.debug(
+                            f"[{scan_id[:8]}] Probe log: "
+                            f"{probe_log.get('probe_name')} → {probe_log.get('status')} "
+                            f"({probe_log.get('duration_ms', 0)}ms)"
+                        )
+
             result = await self.garak.run_scan(
                 provider=provider,
                 model=model,
@@ -530,9 +769,13 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
                 base_url=base_url,
                 probes=probes,
                 scan_type=scan_type,
+                custom_endpoint=custom_endpoint,
+                max_prompts_per_probe=max_prompts_per_probe,
                 progress_callback=lambda p, c, t: self._update_scan_progress(
                     scan_id, p, c, t
                 ),
+                vulnerability_callback=on_vulnerability_found,
+                log_callback=on_probe_log,
                 cancel_check=lambda: self._is_scan_cancelled(scan_id),
             )
 
@@ -540,14 +783,46 @@ class MlServiceServicer(ml_service_pb2_grpc.MlServiceServicer):
                 if scan_id in self.running_scans:
                     # Don't overwrite if cancelled
                     if self.running_scans[scan_id]["status"] != "cancelled":
-                        self.running_scans[scan_id].update(
-                            {
-                                "status": "completed",
-                                "progress": 100,
-                                "vulnerabilities": result.get("vulnerabilities", []),
-                                "completed_at": time.time(),
-                            }
-                        )
+                        # Vulnerabilities were already accumulated incrementally
+                        # via on_vulnerability_found callback, but the final result
+                        # may include any we missed, so merge
+                        existing_vulns = self.running_scans[scan_id]["vulnerabilities"]
+                        final_vulns = result.get("vulnerabilities", [])
+
+                        # Use the final list if it has more (shouldn't differ, but safe)
+                        if len(final_vulns) > len(existing_vulns):
+                            self.running_scans[scan_id]["vulnerabilities"] = final_vulns
+
+                        # Similarly for probe logs
+                        existing_logs = self.running_scans[scan_id]["probe_logs"]
+                        final_logs = result.get("probe_logs", [])
+                        if len(final_logs) > len(existing_logs):
+                            self.running_scans[scan_id]["probe_logs"] = final_logs
+
+                        # Check if the scan itself reported a failure
+                        # (e.g., health check failed, circuit breaker tripped)
+                        result_status = result.get("status", "completed")
+                        if result_status == "failed":
+                            error_msg = result.get(
+                                "error",
+                                "Scan failed — check probe logs for details",
+                            )
+                            logger.error(f"Scan {scan_id} failed: {error_msg}")
+                            self.running_scans[scan_id].update(
+                                {
+                                    "status": "failed",
+                                    "error_message": error_msg,
+                                    "completed_at": time.time(),
+                                }
+                            )
+                        else:
+                            self.running_scans[scan_id].update(
+                                {
+                                    "status": "completed",
+                                    "progress": 100,
+                                    "completed_at": time.time(),
+                                }
+                            )
 
         except Exception as e:
             logger.error(f"Garak scan {scan_id} failed: {e}")
